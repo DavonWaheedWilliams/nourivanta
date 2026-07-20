@@ -1,0 +1,31 @@
+Python
+
+pycache/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+Streamlit secrets and environment files
+
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+
+Private databases
+
+data/.db
+data/.sqlite
+data/*.sqlite3
+*.db
+*.sqlite
+*.sqlite3
+
+Computer and editor files
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
