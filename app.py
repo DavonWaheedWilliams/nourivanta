@@ -8,6 +8,7 @@ import sys
 import zipfile
 from statistics import mean
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,12 @@ APP_NAME = "NouriVolt"
 APP_TAGLINE = "Train with intent. Fuel with clarity."
 CM_PER_INCH = 2.54
 ML_PER_FL_OZ = 29.5735295625
+LOCAL_TIMEZONE = ZoneInfo("America/Chicago")
+
+
+def local_today() -> date:
+    """Return the current calendar date in Nashville/Central Time."""
+    return datetime.now(LOCAL_TIMEZONE).date()
 
 st.set_page_config(
     page_title=f"{APP_NAME} | Fitness and Nutrition",
@@ -1305,7 +1312,7 @@ def today_nutrition(session: Session, user: User, selected_date: date) -> dict[s
 
 def render_dashboard(user: User) -> None:
     hero("Today", f"Welcome back, {user.display_name or user.username}", "See your daily targets, recent training, and current progress in one place.")
-    selected_date = st.date_input("Dashboard date", value=date.today(), format="MM/DD/YYYY", key="dashboard_date")
+    selected_date = st.date_input("Dashboard date", value=local_today(), format="MM/DD/YYYY", key="dashboard_date")
 
     with SessionLocal() as session:
         totals = today_nutrition(session, user, selected_date)
@@ -1434,7 +1441,7 @@ def render_dashboard(user: User) -> None:
 
 def render_nutrition(user: User) -> None:
     hero("Nutrition", "Fuel your day", "Log meals, monitor calories and macros, and keep hydration visible.")
-    selected_date = st.date_input("Log date", value=date.today(), format="MM/DD/YYYY", key="nutrition_date")
+    selected_date = st.date_input("Log date", value=local_today(), format="MM/DD/YYYY", key="nutrition_date")
 
     with SessionLocal() as session:
         totals = today_nutrition(session, user, selected_date)
@@ -1618,7 +1625,7 @@ def render_smart_scan(user: User) -> None:
                     )
 
                 with st.form("save_food_photo_result"):
-                    log_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="food_photo_log_date")
+                    log_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="food_photo_log_date")
                     meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="food_photo_meal")
                     food_name = st.text_input("Food name", value=str(result.get("dish_name") or "Scanned meal"))
                     serving = st.text_input("Serving", value=str(result.get("serving_description") or "1 serving"))
@@ -1755,7 +1762,7 @@ def render_smart_scan(user: User) -> None:
                 render_macro_result(barcode_result, "Product database result")
 
                 with st.form("save_barcode_result"):
-                    log_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="barcode_log_date")
+                    log_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="barcode_log_date")
                     meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="barcode_meal")
                     food_name = st.text_input("Food name", value=str(product.get("product_name") or "Scanned product"))
                     serving = st.text_input("Serving", value=f"{servings:g} × {serving_text}")
@@ -1797,7 +1804,7 @@ def render_smart_scan(user: User) -> None:
                         st.write(ingredients)
 
     with navigator_tab:
-        target_date = st.date_input("Plan date", value=date.today(), format="MM/DD/YYYY", key="navigator_date")
+        target_date = st.date_input("Plan date", value=local_today(), format="MM/DD/YYYY", key="navigator_date")
         with SessionLocal() as session:
             totals = today_nutrition(session, user, target_date)
         remaining_meals = st.slider("Meals remaining", min_value=1, max_value=4, value=2)
@@ -1876,7 +1883,7 @@ def render_readiness(user: User) -> None:
         "Readiness Pulse",
         "Combine sleep, energy, stress, soreness, mood, nutrition, and hydration into a daily training signal.",
     )
-    selected_date = st.date_input("Check-in date", value=date.today(), format="MM/DD/YYYY", key="readiness_date")
+    selected_date = st.date_input("Check-in date", value=local_today(), format="MM/DD/YYYY", key="readiness_date")
     with SessionLocal() as session:
         existing = session.scalar(
             select(DailyCheckIn).where(
@@ -2020,7 +2027,7 @@ def render_workouts(user: User) -> None:
 
     with tab_session:
         with st.form("workout_session_form", clear_on_submit=True):
-            workout_date = st.date_input("Workout date", value=date.today(), format="MM/DD/YYYY")
+            workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY")
             workout_name = st.text_input("Workout name", placeholder="Upper body strength")
             category = st.selectbox("Category", ["Strength", "Cardio", "Mobility", "Sports", "HIIT", "Recovery", "Other"])
             c1, c2 = st.columns(2)
@@ -2092,7 +2099,7 @@ def render_workouts(user: User) -> None:
 def render_progress(user: User) -> None:
     hero("Progress", "Measure what changes", "Track weight, body composition, and measurements over time.")
     with st.form("measurement_form", clear_on_submit=True):
-        measurement_date = st.date_input("Measurement date", value=date.today(), format="MM/DD/YYYY")
+        measurement_date = st.date_input("Measurement date", value=local_today(), format="MM/DD/YYYY")
         c1, c2, c3 = st.columns(3)
         weight = c1.number_input("Weight (lb)", min_value=0.0, max_value=1500.0, value=0.0, step=0.1)
         body_fat = c2.number_input("Body fat (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1)
@@ -2144,7 +2151,7 @@ def render_goals(user: User) -> None:
         c3, c4, c5 = st.columns(3)
         current = c3.number_input("Current value", value=0.0)
         target = c4.number_input("Target value", value=1.0)
-        target_date = c5.date_input("Target date", value=date.today() + timedelta(days=30), format="MM/DD/YYYY")
+        target_date = c5.date_input("Target date", value=local_today() + timedelta(days=30), format="MM/DD/YYYY")
         submitted = st.form_submit_button("Create goal", type="primary", width="stretch")
     if submitted:
         if not title.strip():
