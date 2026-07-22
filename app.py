@@ -2879,10 +2879,32 @@ def render_workouts(user: User) -> None:
                     if workout.notes:
                         st.write(workout.notes)
                     with SessionLocal() as session:
-                        sets = session.scalars(select(ExerciseSet).where(ExerciseSet.session_id == workout.id).order_by(ExerciseSet.exercise_name, ExerciseSet.set_number)).all()
+                        sets = session.scalars(
+                            select(ExerciseSet)
+                            .where(ExerciseSet.session_id == workout.id)
+                            .order_by(ExerciseSet.id)
+                        ).all()
                     if sets:
-                        df = pd.DataFrame([{"Exercise": x.exercise_name, "Set": x.set_number, "Reps": x.reps, "Weight (lb)": x.weight_lb, "Distance (mi)": x.distance_miles, "Minutes": x.duration_min} for x in sets])
-                        st.dataframe(df, width="stretch", hide_index=True)
+                        exercise_groups: dict[str, list[ExerciseSet]] = {}
+                        exercise_labels: dict[str, str] = {}
+                        for exercise_set in sets:
+                            exercise_key = exercise_set.exercise_name.strip().casefold()
+                            exercise_groups.setdefault(exercise_key, []).append(exercise_set)
+                            exercise_labels.setdefault(exercise_key, exercise_set.exercise_name)
+
+                        for exercise_key, exercise_sets in exercise_groups.items():
+                            st.markdown(f"#### {html.escape(exercise_labels[exercise_key])}")
+                            exercise_df = pd.DataFrame([
+                                {
+                                    "Set": display_set_number,
+                                    "Reps": exercise_set.reps,
+                                    "Weight (lb)": exercise_set.weight_lb,
+                                    "Distance (mi)": exercise_set.distance_miles,
+                                    "Minutes": exercise_set.duration_min,
+                                }
+                                for display_set_number, exercise_set in enumerate(exercise_sets, start=1)
+                            ])
+                            st.dataframe(exercise_df, width="stretch", hide_index=True)
                     else:
                         st.caption("No detailed exercise sets saved.")
                     if st.button("Delete workout", key=f"delete_workout_{workout.id}"):

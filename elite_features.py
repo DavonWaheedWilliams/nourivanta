@@ -925,18 +925,20 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
         suggestions = fuel_gap_suggestions(gaps["protein"], gaps["carbs"], gaps["fat"], gaps["calories"], exclusions)
         st.subheader("Practical next-food options")
         suggestion_cards = "".join(
-            f"""
-            <div class="nv-suggestion-card">
-                <div class="nv-suggestion-name">{_esc(item['name'])}</div>
-                <div class="nv-suggestion-meta">
-                    {item['calories']} kcal · {item['protein_g']} g protein<br>
-                    {item['carbs_g']} g carbs · {item['fat_g']} g fat
-                </div>
-            </div>
-            """
+            (
+                '<div class="nv-suggestion-card">'
+                f'<div class="nv-suggestion-name">{_esc(item["name"])}</div>'
+                '<div class="nv-suggestion-meta">'
+                f'{item["calories"]} kcal · {item["protein_g"]} g protein<br>'
+                f'{item["carbs_g"]} g carbs · {item["fat_g"]} g fat'
+                '</div></div>'
+            )
             for item in suggestions
         )
-        st.markdown(f'<div class="nv-suggestion-grid">{suggestion_cards}</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="nv-suggestion-grid">' + suggestion_cards + '</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _body_part_lookup(exercise_name: str, library: dict[str, list[str]]) -> str:
@@ -1036,28 +1038,54 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             superset = c6.text_input("Superset or circuit group", placeholder="A, B, Circuit 1")
             set_style = c7.selectbox("Set style", ["Standard", "Warm-up", "Drop set", "AMRAP", "Tempo", "Circuit"])
             if st.button("Add exercise to program", type="primary"):
-                if not exercise_name.strip():
+                clean_exercise_name = exercise_name.strip()
+                clean_day_name = day_name.strip() or "Day 1"
+                if not clean_exercise_name:
                     st.error("Enter an exercise name.")
                 else:
                     with SessionLocal() as session:
-                        count = session.scalar(select(func.count(models.WorkoutProgramExercise.id)).where(models.WorkoutProgramExercise.program_id == program.id)) or 0
-                        session.add(models.WorkoutProgramExercise(
-                            program_id=program.id,
-                            day_name=day_name.strip() or "Day 1",
-                            order_index=count + 1,
-                            body_part=body_part,
-                            exercise_name=exercise_name.strip(),
-                            sets=int(sets),
-                            reps_min=int(reps_min),
-                            reps_max=max(int(reps_min), int(reps_max)),
-                            target_weight_lb=float(target_weight),
-                            rest_seconds=int(rest),
-                            superset_group=superset.strip(),
-                            set_style=set_style,
-                        ))
-                        session.commit()
-                    st.success("Exercise added.")
-                    st.rerun()
+                        existing_exercises = session.scalars(
+                            select(models.WorkoutProgramExercise).where(
+                                models.WorkoutProgramExercise.program_id == program.id,
+                                models.WorkoutProgramExercise.day_name == clean_day_name,
+                            )
+                        ).all()
+                        duplicate = next(
+                            (
+                                item
+                                for item in existing_exercises
+                                if item.exercise_name.strip().casefold() == clean_exercise_name.casefold()
+                            ),
+                            None,
+                        )
+                        if duplicate:
+                            st.warning(
+                                f"{clean_exercise_name} is already listed for {clean_day_name}. "
+                                "Delete the existing entry before adding a replacement."
+                            )
+                        else:
+                            count = session.scalar(
+                                select(func.count(models.WorkoutProgramExercise.id)).where(
+                                    models.WorkoutProgramExercise.program_id == program.id
+                                )
+                            ) or 0
+                            session.add(models.WorkoutProgramExercise(
+                                program_id=program.id,
+                                day_name=clean_day_name,
+                                order_index=count + 1,
+                                body_part=body_part,
+                                exercise_name=clean_exercise_name,
+                                sets=int(sets),
+                                reps_min=int(reps_min),
+                                reps_max=max(int(reps_min), int(reps_max)),
+                                target_weight_lb=float(target_weight),
+                                rest_seconds=int(rest),
+                                superset_group=superset.strip(),
+                                set_style=set_style,
+                            ))
+                            session.commit()
+                            st.success("Exercise added.")
+                            st.rerun()
             with SessionLocal() as session:
                 planned = session.scalars(select(models.WorkoutProgramExercise).where(models.WorkoutProgramExercise.program_id == program.id).order_by(models.WorkoutProgramExercise.day_name, models.WorkoutProgramExercise.order_index)).all()
             if planned:
@@ -1147,12 +1175,15 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         )
                         session.add(workout)
                         session.flush()
+                        exercise_set_counters: dict[str, int] = {}
                         for ex in day_exercises:
-                            for set_number in range(1, ex.sets + 1):
+                            exercise_key = ex.exercise_name.strip().casefold()
+                            for _ in range(ex.sets):
+                                exercise_set_counters[exercise_key] = exercise_set_counters.get(exercise_key, 0) + 1
                                 session.add(ExerciseSet(
                                     session_id=workout.id,
                                     exercise_name=ex.exercise_name,
-                                    set_number=set_number,
+                                    set_number=exercise_set_counters[exercise_key],
                                     reps=ex.reps_min,
                                     weight_lb=ex.target_weight_lb,
                                     completed=False,
