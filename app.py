@@ -3098,7 +3098,7 @@ def render_nutrition_center(user: User) -> None:
     if current not in options:
         current = options[0]
     selected = st.radio(
-        "Nutrition tools",
+        "\u200b",
         options,
         index=options.index(current),
         horizontal=True,
@@ -3123,7 +3123,7 @@ def render_workouts_center(user: User) -> None:
     if current not in options:
         current = options[0]
     selected = st.radio(
-        "Workout tools",
+        "\u200b",
         options,
         index=options.index(current),
         horizontal=True,
@@ -3144,7 +3144,7 @@ def render_readiness_center(user: User) -> None:
     if current not in options:
         current = options[0]
     selected = st.radio(
-        "Readiness tools",
+        "\u200b",
         options,
         index=options.index(current),
         horizontal=True,
@@ -3165,7 +3165,7 @@ def render_progress_center(user: User) -> None:
     if current not in options:
         current = options[0]
     selected = st.radio(
-        "Progress and goal tools",
+        "\u200b",
         options,
         index=options.index(current),
         horizontal=True,
@@ -3253,7 +3253,7 @@ def render_settings_center(user: User) -> None:
     if current not in options:
         current = options[0]
     selected = st.radio(
-        "Settings tools",
+        "\u200b",
         options,
         index=options.index(current),
         horizontal=True,
