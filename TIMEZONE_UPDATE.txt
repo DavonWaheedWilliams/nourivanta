@@ -1,0 +1,28 @@
+NouriVolt per-user time-zone update
+
+What changed
+- The app detects each viewer's browser time zone through Streamlit.
+- Every current-date default uses the viewer's local calendar day.
+- Settings now includes a Time zone section.
+- Users may follow their device automatically or save a specific IANA time zone.
+- The preference is stored in a new user_timezone_preferences database table.
+- Existing accounts and saved records remain unchanged.
+- Security lockouts and inactivity timing use UTC so travel and time-zone changes do not affect account protection.
+
+Files to replace in GitHub
+- app.py
+- elite_features.py
+- requirements.txt
+
+Keep these existing settings
+- Your current Streamlit Secrets, including DATABASE_URL and OPENAI_API_KEY.
+- Your existing Neon database or local data/nourivolt.db file.
+
+Deployment
+1. Upload or replace the three files above in GitHub.
+2. Commit the changes to main.
+3. Reboot the Streamlit app.
+4. Sign in and open Settings > Time zone.
+5. Leave Follow my device automatically selected or save a manual time zone.
+
+The requirements file now uses Streamlit 1.43 or newer because browser time-zone detection was added in Streamlit 1.43.

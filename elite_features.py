@@ -7,6 +7,7 @@ import os
 import secrets
 import string
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote_plus
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +17,58 @@ import streamlit as st
 import streamlit.components.v1 as components
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
+
+DEFAULT_TIMEZONE_NAME = os.getenv("APP_TIMEZONE", "America/Chicago")
+
+
+def _valid_timezone_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = str(value).strip()
+    try:
+        ZoneInfo(candidate)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    return candidate
+
+
+def _browser_timezone_name() -> str | None:
+    try:
+        context = getattr(st, "context", None)
+        return _valid_timezone_name(getattr(context, "timezone", None))
+    except Exception:
+        return None
+
+
+def active_timezone_name() -> str:
+    mode = st.session_state.get("timezone_mode", "auto")
+    manual_name = _valid_timezone_name(st.session_state.get("manual_timezone_name"))
+    if mode == "manual" and manual_name:
+        return manual_name
+    return _browser_timezone_name() or _valid_timezone_name(DEFAULT_TIMEZONE_NAME) or "UTC"
+
+
+def local_now() -> datetime:
+    """Return the current viewer-local time as a naive datetime."""
+    return datetime.now(ZoneInfo(active_timezone_name())).replace(tzinfo=None)
+
+
+def local_today() -> date:
+    """Return the current viewer's local calendar date."""
+    return datetime.now(ZoneInfo(active_timezone_name())).date()
+
+
+def utc_now() -> datetime:
+    """Return a naive UTC timestamp for security calculations."""
+    return datetime.utcnow()
+
+
+def utc_naive_to_local(value: datetime) -> datetime:
+    """Convert a stored naive UTC timestamp into the current viewer's local time."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo(active_timezone_name()))
+
 
 from elite_services import (
     EliteServiceError,
@@ -44,7 +97,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         fiber_g: Mapped[float] = mapped_column(Float, default=0)
         source: Mapped[str] = mapped_column(String(80), default="Manual")
         source_id: Mapped[str] = mapped_column(String(80), default="")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class SavedMeal(Base):
         __tablename__ = "saved_meals"
@@ -53,7 +106,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         name: Mapped[str] = mapped_column(String(180))
         meal_type: Mapped[str] = mapped_column(String(30), default="Meal")
         notes: Mapped[str] = mapped_column(Text, default="")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class SavedMealItem(Base):
         __tablename__ = "saved_meal_items"
@@ -84,7 +137,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         estimated_cost: Mapped[float] = mapped_column(Float, default=0)
         completed: Mapped[bool] = mapped_column(Boolean, default=False)
         notes: Mapped[str] = mapped_column(Text, default="")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class PantryItem(Base):
         __tablename__ = "pantry_items"
@@ -95,7 +148,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         unit: Mapped[str] = mapped_column(String(40), default="item")
         category: Mapped[str] = mapped_column(String(60), default="Pantry")
         expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class WorkoutProgram(Base):
         __tablename__ = "workout_programs"
@@ -106,7 +159,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         days_per_week: Mapped[int] = mapped_column(Integer, default=3)
         active: Mapped[bool] = mapped_column(Boolean, default=True)
         notes: Mapped[str] = mapped_column(Text, default="")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class WorkoutProgramExercise(Base):
         __tablename__ = "workout_program_exercises"
@@ -133,7 +186,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         period_end: Mapped[date] = mapped_column(Date)
         report_text: Mapped[str] = mapped_column(Text)
         metrics_json: Mapped[str] = mapped_column(Text, default="{}")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class UserPreference(Base):
         __tablename__ = "user_preferences"
@@ -148,7 +201,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         day_end_hour: Mapped[int] = mapped_column(Integer, default=22)
         coach_share_code: Mapped[str] = mapped_column(String(32), default="")
         theme: Mapped[str] = mapped_column(String(40), default="Light Spectrum")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class WearableMetric(Base):
         __tablename__ = "wearable_metrics"
@@ -163,7 +216,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         hrv_ms: Mapped[float] = mapped_column(Float, default=0)
         active_calories: Mapped[float] = mapped_column(Float, default=0)
         notes: Mapped[str] = mapped_column(Text, default="")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class HouseholdProfile(Base):
         __tablename__ = "household_profiles"
@@ -175,7 +228,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         calorie_target: Mapped[int] = mapped_column(Integer, default=2000)
         protein_target: Mapped[int] = mapped_column(Integer, default=100)
         private_measurements: Mapped[bool] = mapped_column(Boolean, default=True)
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class CoachNote(Base):
         __tablename__ = "coach_notes"
@@ -185,7 +238,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         coach_name: Mapped[str] = mapped_column(String(120), default="Coach")
         category: Mapped[str] = mapped_column(String(80), default="General")
         note: Mapped[str] = mapped_column(Text)
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class SecurityProfile(Base):
         __tablename__ = "security_profiles"
@@ -196,14 +249,14 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
         session_timeout_min: Mapped[int] = mapped_column(Integer, default=90)
         plan_tier: Mapped[str] = mapped_column(String(30), default="Core")
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class LoginEvent(Base):
         __tablename__ = "login_events"
         id: Mapped[int] = mapped_column(Integer, primary_key=True)
         user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
         login_identifier: Mapped[str] = mapped_column(String(255), default="")
-        event_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+        event_time: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
         success: Mapped[bool] = mapped_column(Boolean, default=False)
         client_info: Mapped[str] = mapped_column(String(300), default="")
 
@@ -307,10 +360,10 @@ def login_allowed(SessionLocal: Any, models: SimpleNamespace, User: Any, login: 
         if not user:
             return True, ""
         profile = _get_security(session, models, user.id)
-        if profile.locked_until and profile.locked_until > datetime.now():
-            minutes = max(1, math.ceil((profile.locked_until - datetime.now()).total_seconds() / 60))
+        if profile.locked_until and profile.locked_until > utc_now():
+            minutes = max(1, math.ceil((profile.locked_until - utc_now()).total_seconds() / 60))
             return False, f"Too many failed attempts. Try again in about {minutes} minute(s)."
-        if profile.locked_until and profile.locked_until <= datetime.now():
+        if profile.locked_until and profile.locked_until <= utc_now():
             profile.locked_until = None
             profile.failed_login_count = 0
             session.commit()
@@ -345,7 +398,7 @@ def register_login_result(
             else:
                 profile.failed_login_count += 1
                 if profile.failed_login_count >= 5:
-                    profile.locked_until = datetime.now() + timedelta(minutes=15)
+                    profile.locked_until = utc_now() + timedelta(minutes=15)
         session.commit()
 
 
@@ -394,7 +447,7 @@ def _period_metrics(ctx: dict[str, Any], user: Any, days: int) -> dict[str, Any]
     ExerciseSet = ctx["ExerciseSet"]
     Measurement = ctx["Measurement"]
     DailyCheckIn = ctx["DailyCheckIn"]
-    start = date.today() - timedelta(days=days - 1)
+    start = local_today() - timedelta(days=days - 1)
     with SessionLocal() as session:
         food = session.scalars(select(FoodLog).where(FoodLog.user_id == user.id, FoodLog.log_date >= start)).all()
         water = session.scalars(select(WaterLog).where(WaterLog.user_id == user.id, WaterLog.log_date >= start)).all()
@@ -421,7 +474,7 @@ def _period_metrics(ctx: dict[str, Any], user: Any, days: int) -> dict[str, Any]
     return {
         "period_days": days,
         "period_start": start,
-        "period_end": date.today(),
+        "period_end": local_today(),
         "food_logged_days": logged_days,
         "nutrition_consistency_pct": round(logged_days / days * 100),
         "average_calories": round(calories_avg),
@@ -604,7 +657,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            log_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="elite_search_date")
+            log_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="elite_search_date")
             meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="elite_search_meal")
             b1, b2 = st.columns(2)
             with b1:
@@ -647,7 +700,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
             label_result = st.session_state.get("elite_label_result")
             if label_result:
                 with st.form("elite_label_save"):
-                    label_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="elite_label_date")
+                    label_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="elite_label_date")
                     label_meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="elite_label_meal")
                     product_name = st.text_input("Product", value=str(label_result.get("product_name") or "Label-scanned food"))
                     serving = st.text_input("Serving", value=str(label_result.get("serving_size") or "1 serving"))
@@ -676,7 +729,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
             favorite = st.selectbox("Favorite food", favorites, format_func=lambda x: f"{x.name} · {x.serving}")
             scale = st.number_input("Favorite servings", min_value=0.1, max_value=20.0, value=1.0, step=0.1, key="favorite_scale")
             c1, c2 = st.columns(2)
-            fav_date = c1.date_input("Log date", value=date.today(), format="MM/DD/YYYY", key="favorite_date")
+            fav_date = c1.date_input("Log date", value=local_today(), format="MM/DD/YYYY", key="favorite_date")
             fav_meal = c2.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="favorite_meal")
             if st.button("Log favorite", type="primary"):
                 _save_food_log(ctx, user.id, fav_date, fav_meal, {
@@ -702,7 +755,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                 recent_unique.setdefault(row.food_name.lower(), row)
             chosen = st.selectbox("Recent item", list(recent_unique.values()), format_func=lambda x: f"{x.food_name} · {x.serving}")
             if st.button("Log recent item again"):
-                _save_food_log(ctx, user.id, date.today(), chosen.meal, {
+                _save_food_log(ctx, user.id, local_today(), chosen.meal, {
                     "name": chosen.food_name,
                     "serving": chosen.serving,
                     "calories": chosen.calories,
@@ -715,7 +768,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
     with meals_tab:
         st.subheader("Save a diary meal")
         c1, c2 = st.columns(2)
-        source_date = c1.date_input("Source diary date", value=date.today(), format="MM/DD/YYYY", key="saved_meal_source_date")
+        source_date = c1.date_input("Source diary date", value=local_today(), format="MM/DD/YYYY", key="saved_meal_source_date")
         source_meal = c2.selectbox("Meal to save", ["Breakfast", "Lunch", "Dinner", "Snack"], key="saved_meal_source_meal")
         meal_name = st.text_input("Saved meal name", value=f"{source_meal} template")
         if st.button("Save meal from diary"):
@@ -744,7 +797,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
         if saved_meals:
             chosen_meal = st.selectbox("Saved meal", saved_meals, format_func=lambda x: x.name)
             c1, c2 = st.columns(2)
-            target_date = c1.date_input("Log saved meal on", value=date.today(), format="MM/DD/YYYY", key="saved_meal_target_date")
+            target_date = c1.date_input("Log saved meal on", value=local_today(), format="MM/DD/YYYY", key="saved_meal_target_date")
             target_meal = c2.selectbox("Meal category", ["Breakfast", "Lunch", "Dinner", "Snack"], key="saved_meal_target_meal")
             if st.button("Log complete saved meal", type="primary"):
                 with SessionLocal() as session:
@@ -766,8 +819,8 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                 st.success("Saved meal logged.")
         st.subheader("Copy an entire day")
         c1, c2 = st.columns(2)
-        copy_from = c1.date_input("Copy from", value=date.today() - timedelta(days=1), format="MM/DD/YYYY")
-        copy_to = c2.date_input("Copy to", value=date.today(), format="MM/DD/YYYY")
+        copy_from = c1.date_input("Copy from", value=local_today() - timedelta(days=1), format="MM/DD/YYYY")
+        copy_to = c2.date_input("Copy to", value=local_today(), format="MM/DD/YYYY")
         include_water = st.checkbox("Copy water entries", value=False)
         if st.button("Copy diary day"):
             with SessionLocal() as session:
@@ -793,7 +846,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
             st.success(f"Copied {len(source_foods)} food entries.")
 
     with forecast_tab:
-        forecast_date = st.date_input("Forecast date", value=date.today(), format="MM/DD/YYYY", key="forecast_date")
+        forecast_date = st.date_input("Forecast date", value=local_today(), format="MM/DD/YYYY", key="forecast_date")
         with SessionLocal() as session:
             row = session.execute(select(
                 func.coalesce(func.sum(FoodLog.calories), 0),
@@ -804,8 +857,8 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
             pref = _get_preferences(session, models, user.id)
             session.commit()
         totals = {"calories": float(row[0]), "protein": float(row[1]), "carbs": float(row[2]), "fat": float(row[3])}
-        now_hour = datetime.now().hour + datetime.now().minute / 60
-        if forecast_date != date.today():
+        now_hour = local_now().hour + local_now().minute / 60
+        if forecast_date != local_today():
             fraction = 1.0
         else:
             fraction = max(.15, min(1.0, (now_hour - pref.day_start_hour) / max(pref.day_end_hour - pref.day_start_hour, 1)))
@@ -866,7 +919,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
         "Build smarter training plans",
         "Create structured programs, plan progressive overload, track personal records, and manage muscle recovery.",
     )
-    builder_tab, overload_tab, recovery_tab = st.tabs(["Program Builder", "Progressive Overload & PRs", "Recovery Map"])
+    builder_tab, overload_tab, recovery_tab = st.tabs(["Program", "Progress & PRs", "Recovery"])
 
     with builder_tab:
         with st.form("elite_program_create"):
@@ -941,7 +994,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 } for x in planned]), width="stretch", hide_index=True)
                 days = sorted({x.day_name for x in planned})
                 log_day = st.selectbox("Program day to start", days)
-                workout_date = st.date_input("Workout date", value=date.today(), format="MM/DD/YYYY", key="program_workout_date")
+                workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY", key="program_workout_date")
                 if st.button("Create workout session from this program day", type="primary", width="stretch"):
                     day_exercises = [x for x in planned if x.day_name == log_day]
                     with SessionLocal() as session:
@@ -1057,7 +1110,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
         rows = []
         for part in library.keys():
             last = latest_by_part.get(part)
-            days_ago = (date.today() - last).days if last else None
+            days_ago = (local_today() - last).days if last else None
             status = "Ready" if days_ago is None or days_ago >= 3 else "Moderate" if days_ago == 2 else "Recovering"
             rows.append({"Body part": part, "Last trained": last.strftime("%m/%d/%Y") if last else "No data", "Days ago": days_ago, "Status": status})
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
@@ -1113,7 +1166,7 @@ def _render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
             st.success("Preferences saved.")
 
     with plan_tab:
-        week_start = st.date_input("Plan week starts", value=date.today() - timedelta(days=date.today().weekday()), format="MM/DD/YYYY")
+        week_start = st.date_input("Plan week starts", value=local_today() - timedelta(days=local_today().weekday()), format="MM/DD/YYYY")
         with SessionLocal() as session:
             pref = _get_preferences(session, models, user.id)
             session.commit()
@@ -1222,7 +1275,7 @@ def _render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
             c4, c5 = st.columns(2)
             category = c4.selectbox("Category", ["Produce", "Protein", "Dairy", "Frozen", "Pantry", "Bakery", "Other"])
             track_expiration = st.checkbox("Track an expiration date", value=False)
-            expires = c5.date_input("Expires", value=date.today() + timedelta(days=14), format="MM/DD/YYYY", disabled=not track_expiration)
+            expires = c5.date_input("Expires", value=local_today() + timedelta(days=14), format="MM/DD/YYYY", disabled=not track_expiration)
             add = st.form_submit_button("Add pantry item", type="primary", width="stretch")
         if add and item_name.strip():
             with SessionLocal() as session:
@@ -1231,7 +1284,7 @@ def _render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
             st.rerun()
         with SessionLocal() as session:
             pantry = session.scalars(select(models.PantryItem).where(models.PantryItem.user_id == user.id).order_by(models.PantryItem.category, models.PantryItem.name)).all()
-            future_entries = session.scalars(select(models.MealPlanEntry).where(models.MealPlanEntry.user_id == user.id, models.MealPlanEntry.plan_date >= date.today(), models.MealPlanEntry.plan_date <= date.today() + timedelta(days=7))).all()
+            future_entries = session.scalars(select(models.MealPlanEntry).where(models.MealPlanEntry.user_id == user.id, models.MealPlanEntry.plan_date >= local_today(), models.MealPlanEntry.plan_date <= local_today() + timedelta(days=7))).all()
         if pantry:
             st.dataframe(pd.DataFrame([{"Item": x.name, "Quantity": x.quantity, "Unit": x.unit, "Category": x.category, "Expires": x.expires_on.strftime("%m/%d/%Y") if x.expires_on else ""} for x in pantry]), width="stretch", hide_index=True)
         pantry_names = {x.name.strip().lower() for x in pantry}
@@ -1287,7 +1340,7 @@ def _render_progress_center(user: Any, ctx: dict[str, Any]) -> None:
         """,
         unsafe_allow_html=True,
     )
-    start = date.today() - timedelta(days=days - 1)
+    start = local_today() - timedelta(days=days - 1)
     with ctx["SessionLocal"]() as session:
         measurements = session.scalars(select(ctx["Measurement"]).where(ctx["Measurement"].user_id == user.id, ctx["Measurement"].measurement_date >= start).order_by(ctx["Measurement"].measurement_date)).all()
         workouts = session.scalars(select(ctx["WorkoutSession"]).where(ctx["WorkoutSession"].user_id == user.id, ctx["WorkoutSession"].workout_date >= start).order_by(ctx["WorkoutSession"].workout_date)).all()
@@ -1309,10 +1362,10 @@ def _render_progress_center(user: Any, ctx: dict[str, Any]) -> None:
         forecast_rows = []
         for goal in goals:
             progress = goal.current_value / max(goal.target_value, 1)
-            elapsed = max((date.today() - goal.created_at.date()).days, 1)
+            elapsed = max((local_today() - goal.created_at.date()).days, 1)
             daily_rate = goal.current_value / elapsed
             days_left = (goal.target_value - goal.current_value) / daily_rate if daily_rate > 0 else None
-            forecast_date = date.today() + timedelta(days=math.ceil(days_left)) if days_left is not None and days_left >= 0 else None
+            forecast_date = local_today() + timedelta(days=math.ceil(days_left)) if days_left is not None and days_left >= 0 else None
             forecast_rows.append({"Goal": goal.title, "Progress": f"{progress*100:.0f}%", "Forecast": forecast_date.strftime("%m/%d/%Y") if forecast_date else "More data needed", "Target": goal.target_date.strftime("%m/%d/%Y") if goal.target_date else ""})
         st.dataframe(pd.DataFrame(forecast_rows), width="stretch", hide_index=True)
     else:
@@ -1350,7 +1403,7 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
         if result:
             command_type = result.get("command_type")
             st.info(f"Detected command: {command_type}")
-            log_date = st.date_input("Entry date", value=date.today(), format="MM/DD/YYYY", key="voice_entry_date")
+            log_date = st.date_input("Entry date", value=local_today(), format="MM/DD/YYYY", key="voice_entry_date")
             if command_type == "food":
                 food = result.get("food") or {}
                 with st.form("voice_food_form"):
@@ -1399,7 +1452,7 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
         st.markdown("**Wearable Bridge** accepts manual records and CSV exports from health platforms. Direct Apple Health and Health Connect permission access requires a native mobile companion app.")
         with st.form("wearable_manual"):
             c1, c2 = st.columns(2)
-            metric_date = c1.date_input("Metric date", value=date.today(), format="MM/DD/YYYY")
+            metric_date = c1.date_input("Metric date", value=local_today(), format="MM/DD/YYYY")
             source = c2.selectbox("Source", ["Manual", "Apple Health export", "Health Connect export", "Garmin export", "Fitbit export", "Other"])
             c1, c2, c3 = st.columns(3)
             sleep = c1.number_input("Sleep hours", min_value=0.0, max_value=24.0, value=7.0, step=0.1)
@@ -1455,12 +1508,12 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
                 st.error(f"CSV import failed: {exc}")
         with SessionLocal() as session:
             latest = session.scalar(select(models.WearableMetric).where(models.WearableMetric.user_id == user.id).order_by(models.WearableMetric.metric_date.desc(), models.WearableMetric.id.desc()))
-            checkin = session.scalar(select(ctx["DailyCheckIn"]).where(ctx["DailyCheckIn"].user_id == user.id, ctx["DailyCheckIn"].checkin_date == date.today()))
+            checkin = session.scalar(select(ctx["DailyCheckIn"]).where(ctx["DailyCheckIn"].user_id == user.id, ctx["DailyCheckIn"].checkin_date == local_today()))
             nutrition_row = session.execute(select(
                 func.coalesce(func.sum(ctx["FoodLog"].calories), 0), func.coalesce(func.sum(ctx["FoodLog"].protein_g), 0),
                 func.coalesce(func.sum(ctx["FoodLog"].carbs_g), 0), func.coalesce(func.sum(ctx["FoodLog"].fat_g), 0),
-            ).where(ctx["FoodLog"].user_id == user.id, ctx["FoodLog"].log_date == date.today())).one()
-            water = session.scalar(select(func.coalesce(func.sum(ctx["WaterLog"].amount_ml), 0)).where(ctx["WaterLog"].user_id == user.id, ctx["WaterLog"].log_date == date.today())) or 0
+            ).where(ctx["FoodLog"].user_id == user.id, ctx["FoodLog"].log_date == local_today())).one()
+            water = session.scalar(select(func.coalesce(func.sum(ctx["WaterLog"].amount_ml), 0)).where(ctx["WaterLog"].user_id == user.id, ctx["WaterLog"].log_date == local_today())) or 0
         totals = {"calories": float(nutrition_row[0]), "protein": float(nutrition_row[1]), "carbs": float(nutrition_row[2]), "fat": float(nutrition_row[3]), "water": float(water)}
         score = _combined_readiness(user, checkin, latest, totals, ctx)
         if score >= 80:
@@ -1516,7 +1569,7 @@ def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
             st.rerun()
         with st.form("coach_note"):
             c1, c2 = st.columns(2)
-            note_date = c1.date_input("Note date", value=date.today(), format="MM/DD/YYYY")
+            note_date = c1.date_input("Note date", value=local_today(), format="MM/DD/YYYY")
             coach_name = c2.text_input("Coach or reviewer", value="Coach")
             category = st.selectbox("Category", ["General", "Nutrition", "Training", "Recovery", "Goal"])
             note = st.text_area("Coach note")
@@ -1551,7 +1604,7 @@ def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
             st.code(st.session_state.elite_new_recovery_code)
         st.subheader("Recent account access")
         if events:
-            st.dataframe(pd.DataFrame([{"Date": x.event_time.strftime("%m/%d/%Y %I:%M %p"), "Success": x.success, "Client": x.client_info} for x in events]), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame([{"Date": utc_naive_to_local(x.event_time).strftime("%m/%d/%Y %I:%M %p"), "Success": x.success, "Client": x.client_info} for x in events]), width="stretch", hide_index=True)
     with premium_tab:
         payment_link = os.getenv("STRIPE_PAYMENT_LINK", "").strip()
         st.markdown("**Premium structure is ready for a hosted Stripe subscription link.** Core app data and features stay available even when billing is not configured.")

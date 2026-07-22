@@ -95,4 +95,16 @@ NouriVolt now uses six main navigation sections without removing features:
 - Workouts: workout log, exercise sets, programs, progressive overload, personal records, recovery map, and rest tools
 - Readiness: daily check-ins, voice logging, wearable imports, and Recovery-to-Training Match
 - Progress & Goals: measurements, goals, trend forecasts, and Adaptive Coach reports
-- Settings: profile, data exports, account management, family profiles, coach mode, security, and premium-ready controls
+- Settings: profile, per-user time zone, data exports, account management, family profiles, coach mode, security, and premium-ready controls
+
+
+## Per-user time zone
+
+NouriVolt detects each viewer's browser time zone through Streamlit and uses it for every current-date field and daily calculation. Each account also has a Settings > Time zone page with two choices:
+
+- Follow my device automatically
+- Use a specific IANA time zone
+
+A manual preference is saved in the database for that account. `APP_TIMEZONE` remains an optional fallback when browser detection is unavailable. The default fallback is `America/Chicago`.
+
+Automatic browser detection requires Streamlit 1.43 or newer. `requirements.txt` includes this minimum version.

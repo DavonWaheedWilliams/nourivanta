@@ -9,6 +9,7 @@ import zipfile
 from functools import wraps
 from statistics import mean
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,66 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 
 APP_NAME = "NouriVolt"
 APP_TAGLINE = "Train with intent. Fuel with clarity."
+
+DEFAULT_TIMEZONE_NAME = os.getenv("APP_TIMEZONE", "America/Chicago")
+AUTO_TIMEZONE_LABEL = "Follow my device automatically"
+MANUAL_TIMEZONE_LABEL = "Use a specific time zone"
+
+
+def _valid_timezone_name(value: str | None) -> str | None:
+    """Return a valid IANA time-zone name or None."""
+    if not value:
+        return None
+    candidate = str(value).strip()
+    try:
+        ZoneInfo(candidate)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    return candidate
+
+
+def browser_timezone_name() -> str | None:
+    """Read the current viewer's browser time zone when Streamlit supports it."""
+    try:
+        context = getattr(st, "context", None)
+        return _valid_timezone_name(getattr(context, "timezone", None))
+    except Exception:
+        return None
+
+
+def active_timezone_name() -> str:
+    """Resolve manual preference, browser time zone, app fallback, then UTC."""
+    try:
+        mode = st.session_state.get("timezone_mode", "auto")
+        manual_name = _valid_timezone_name(st.session_state.get("manual_timezone_name"))
+    except Exception:
+        mode = "auto"
+        manual_name = None
+    if mode == "manual" and manual_name:
+        return manual_name
+    detected = browser_timezone_name()
+    if detected:
+        return detected
+    return _valid_timezone_name(DEFAULT_TIMEZONE_NAME) or "UTC"
+
+
+def active_timezone() -> ZoneInfo:
+    return ZoneInfo(active_timezone_name())
+
+
+def local_now() -> datetime:
+    """Return the current viewer-local time as a naive datetime for compatibility."""
+    return datetime.now(active_timezone()).replace(tzinfo=None)
+
+
+def local_today() -> date:
+    """Return the current viewer's local calendar date."""
+    return datetime.now(active_timezone()).date()
+
+
+def utc_now() -> datetime:
+    """Return a naive UTC timestamp for security and session calculations."""
+    return datetime.utcnow()
 
 
 def _streamlit_version_tuple() -> tuple[int, int, int]:
@@ -194,7 +255,7 @@ st.set_page_config(
     page_title=f"{APP_NAME} | Fitness and Nutrition",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 
@@ -218,7 +279,7 @@ class User(Base):
     carb_target: Mapped[int] = mapped_column(Integer, default=240)
     fat_target: Mapped[int] = mapped_column(Integer, default=70)
     water_target_ml: Mapped[int] = mapped_column(Integer, default=2500)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     food_logs: Mapped[list[FoodLog]] = relationship(cascade="all, delete-orphan")
     water_logs: Mapped[list[WaterLog]] = relationship(cascade="all, delete-orphan")
@@ -227,6 +288,18 @@ class User(Base):
     goals: Mapped[list[Goal]] = relationship(cascade="all, delete-orphan")
     smart_scans: Mapped[list[SmartScan]] = relationship(cascade="all, delete-orphan")
     daily_checkins: Mapped[list[DailyCheckIn]] = relationship(cascade="all, delete-orphan")
+
+
+class UserTimezonePreference(Base):
+    __tablename__ = "user_timezone_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    mode: Mapped[str] = mapped_column(String(16), default="auto")
+    timezone_name: Mapped[str] = mapped_column(String(80), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class FoodLog(Base):
@@ -243,7 +316,7 @@ class FoodLog(Base):
     carbs_g: Mapped[float] = mapped_column(Float, default=0)
     fat_g: Mapped[float] = mapped_column(Float, default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class WaterLog(Base):
@@ -253,7 +326,7 @@ class WaterLog(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     log_date: Mapped[date] = mapped_column(Date, index=True)
     amount_ml: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class WorkoutSession(Base):
@@ -267,7 +340,7 @@ class WorkoutSession(Base):
     duration_min: Mapped[int] = mapped_column(Integer, default=0)
     calories_burned: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     sets: Mapped[list[ExerciseSet]] = relationship(cascade="all, delete-orphan")
 
@@ -300,7 +373,7 @@ class Measurement(Base):
     arm_in: Mapped[float | None] = mapped_column(Float, nullable=True)
     thigh_in: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Goal(Base):
@@ -315,7 +388,7 @@ class Goal(Base):
     unit: Mapped[str] = mapped_column(String(30), default="")
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class SmartScan(Base):
@@ -335,7 +408,7 @@ class SmartScan(Base):
     fiber_g: Mapped[float] = mapped_column(Float, default=0)
     confidence: Mapped[float] = mapped_column(Float, default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class DailyCheckIn(Base):
@@ -351,7 +424,7 @@ class DailyCheckIn(Base):
     soreness: Mapped[int] = mapped_column(Integer, default=5)
     mood: Mapped[int] = mapped_column(Integer, default=5)
     notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 # Elite tables are additive. Existing NouriVolt tables and records remain unchanged.
@@ -379,6 +452,94 @@ if DATABASE_URL.startswith("sqlite"):
 engine = create_engine(DATABASE_URL, **ENGINE_KWARGS)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 Base.metadata.create_all(engine)
+
+
+DATE_WIDGET_KEYS = (
+    "dashboard_date",
+    "nutrition_date",
+    "food_photo_log_date",
+    "barcode_log_date",
+    "navigator_date",
+    "readiness_date",
+    "elite_search_date",
+    "elite_label_date",
+    "favorite_date",
+    "saved_meal_source_date",
+    "saved_meal_target_date",
+    "forecast_date",
+    "program_workout_date",
+    "voice_entry_date",
+)
+
+
+def reset_date_widget_defaults() -> None:
+    """Clear explicit date widget state so defaults follow a changed time zone."""
+    for key in DATE_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+
+
+def load_timezone_preference(user_id: int) -> None:
+    """Load one user's saved time-zone mode into the current browser session."""
+    if st.session_state.get("timezone_loaded_for_user") == user_id:
+        return
+    with SessionLocal() as session:
+        preference = session.scalar(
+            select(UserTimezonePreference).where(UserTimezonePreference.user_id == user_id)
+        )
+    if preference:
+        st.session_state.timezone_mode = (
+            "manual" if preference.mode == "manual" and _valid_timezone_name(preference.timezone_name) else "auto"
+        )
+        st.session_state.manual_timezone_name = preference.timezone_name or ""
+    else:
+        st.session_state.timezone_mode = "auto"
+        st.session_state.manual_timezone_name = ""
+    st.session_state.timezone_loaded_for_user = user_id
+
+
+def save_timezone_preference(user_id: int, mode: str, timezone_name: str = "") -> None:
+    """Persist automatic or manual time-zone behavior without altering user records."""
+    clean_mode = "manual" if mode == "manual" else "auto"
+    clean_name = _valid_timezone_name(timezone_name) or ""
+    if clean_mode == "manual" and not clean_name:
+        raise ValueError("Choose a valid time zone.")
+    with SessionLocal() as session:
+        preference = session.scalar(
+            select(UserTimezonePreference).where(UserTimezonePreference.user_id == user_id)
+        )
+        if preference is None:
+            preference = UserTimezonePreference(user_id=user_id)
+            session.add(preference)
+        preference.mode = clean_mode
+        preference.timezone_name = clean_name if clean_mode == "manual" else ""
+        preference.updated_at = utc_now()
+        session.commit()
+    st.session_state.timezone_mode = clean_mode
+    st.session_state.manual_timezone_name = clean_name if clean_mode == "manual" else ""
+    st.session_state.timezone_loaded_for_user = user_id
+    reset_date_widget_defaults()
+
+
+def timezone_choices() -> list[str]:
+    """Return a sorted list of supported IANA time zones."""
+    try:
+        names = sorted(available_timezones())
+    except Exception:
+        names = []
+    preferred = [
+        "America/New_York",
+        "America/Chicago",
+        "America/Denver",
+        "America/Los_Angeles",
+        "America/Phoenix",
+        "America/Anchorage",
+        "Pacific/Honolulu",
+        "America/Nassau",
+        "UTC",
+    ]
+    ordered = [name for name in preferred if name in names]
+    ordered.extend(name for name in names if name not in ordered)
+    return ordered or ["UTC"]
 
 
 def inject_css() -> None:
@@ -1053,12 +1214,276 @@ def inject_css() -> None:
             background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(245,244,255,.88));
         }
         .nv-empty { padding: 2rem; text-align:center; color:var(--muted); background:linear-gradient(135deg,rgba(248,246,255,.82),rgba(237,252,255,.78)); border:1px dashed rgba(109,93,251,.28); border-radius:18px; }
-        @media (max-width: 700px) {
-            .block-container { padding-left: .8rem; padding-right: .8rem; padding-top: .8rem; }
-            .nv-hero { padding: 1.15rem; border-radius: 18px; }
-            .nv-card { min-height: 116px; }
-            .nv-future-grid, .nv-result-grid { grid-template-columns: 1fr; }
-            .nv-score-wrap { align-items: flex-start; }
+        /* Responsive behavior across phones, tablets, laptops, and desktops. */
+        html, body, [data-testid="stAppViewContainer"] {
+            overflow-x: hidden !important;
+        }
+        [data-testid="stMain"] {
+            min-width: 0 !important;
+        }
+        [data-testid="stMain"] .block-container {
+            width: min(100%, 1320px) !important;
+        }
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"],
+        [data-testid="stDataEditor"] {
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+        [data-testid="stPlotlyChart"],
+        [data-testid="stVegaLiteChart"],
+        [data-testid="stPyplotGlobalUse"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+        }
+        [data-testid="stCameraInput"],
+        [data-testid="stFileUploader"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        [data-testid="stMain"] [data-testid="stRadio"] input[type="radio"] {
+            position: absolute !important;
+            opacity: 0 !important;
+            width: 1px !important;
+            height: 1px !important;
+            pointer-events: none !important;
+        }
+        [data-testid="stMain"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child,
+        [data-testid="stMain"] [data-testid="stRadio"] label > div:first-child {
+            display: none !important;
+        }
+        @media (min-width: 1200px) {
+            .block-container {
+                padding-left: 2rem !important;
+                padding-right: 2rem !important;
+            }
+            .nv-hero { padding: 1.65rem 1.8rem; }
+        }
+        @media (min-width: 901px) and (max-width: 1199px) {
+            .block-container {
+                max-width: 1120px !important;
+                padding-left: 1.25rem !important;
+                padding-right: 1.25rem !important;
+            }
+            .nv-title { font-size: clamp(1.75rem, 3.4vw, 2.5rem); }
+            .nv-ring-card { min-height: 220px; }
+            .nv-dashboard-ring { width: 124px; height: 124px; }
+        }
+        @media (min-width: 641px) and (max-width: 900px) {
+            [data-testid="stSidebar"] {
+                min-width: 250px !important;
+                max-width: 270px !important;
+            }
+            .block-container {
+                max-width: 100% !important;
+                padding: 1rem 1rem 7rem !important;
+            }
+            .nv-hero {
+                padding: 1.25rem 1.35rem !important;
+                border-radius: 20px !important;
+            }
+            .nv-title { font-size: clamp(1.7rem, 4.4vw, 2.35rem); }
+            [data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap !important;
+                gap: .85rem !important;
+            }
+            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                flex: 1 1 calc(50% - .5rem) !important;
+                min-width: 260px !important;
+            }
+            .nv-ring-card { min-height: 215px; }
+            .nv-dashboard-ring { width: 118px; height: 118px; }
+            .nv-future-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .nv-result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            [data-testid="stTabs"] [data-baseweb="tab-list"] {
+                overflow-x: auto !important;
+                flex-wrap: nowrap !important;
+                scrollbar-width: thin;
+                -webkit-overflow-scrolling: touch;
+            }
+            [data-testid="stTabs"] button[role="tab"] {
+                flex: 0 0 auto !important;
+                white-space: nowrap !important;
+            }
+        }
+        @media (max-width: 640px) {
+            [data-testid="stAppViewContainer"] {
+                padding-bottom: 6.5rem !important;
+            }
+            .block-container {
+                max-width: 100% !important;
+                padding: .75rem .72rem 8rem !important;
+            }
+            [data-testid="stSidebar"] {
+                width: min(88vw, 320px) !important;
+            }
+            [data-testid="stSidebar"] > div:first-child {
+                padding-top: .8rem !important;
+            }
+            .nv-hero {
+                padding: 1rem 1rem 1.05rem !important;
+                border-radius: 18px !important;
+                margin-bottom: .8rem !important;
+                min-height: auto !important;
+            }
+            .nv-hero:after {
+                width: 145px !important;
+                height: 145px !important;
+                right: -62px !important;
+                top: -74px !important;
+            }
+            .nv-kicker { font-size: .68rem !important; }
+            .nv-title {
+                font-size: clamp(1.65rem, 8vw, 2.15rem) !important;
+                line-height: 1.08 !important;
+                max-width: 92% !important;
+            }
+            .nv-subtitle {
+                font-size: .93rem !important;
+                line-height: 1.55 !important;
+                max-width: 96% !important;
+            }
+            h1 { font-size: 1.75rem !important; }
+            h2 { font-size: 1.42rem !important; }
+            h3 { font-size: 1.18rem !important; }
+            [data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
+                gap: .78rem !important;
+            }
+            [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                flex: 1 1 100% !important;
+            }
+            .nv-card {
+                min-height: 108px !important;
+                padding: .9rem .95rem !important;
+                border-radius: 17px !important;
+            }
+            .nv-ring-card {
+                min-height: 205px !important;
+                padding: .85rem .7rem !important;
+                border-radius: 18px !important;
+            }
+            .nv-dashboard-ring {
+                width: 112px !important;
+                height: 112px !important;
+                margin: .62rem auto .55rem !important;
+            }
+            .nv-dashboard-ring:before { inset: 11px !important; }
+            .nv-ring-value { font-size: 1.35rem !important; }
+            .nv-value { font-size: 1.48rem !important; }
+            div[data-testid="stForm"] {
+                padding: .82rem !important;
+                border-radius: 17px !important;
+            }
+            [data-testid="stTextInput"],
+            [data-testid="stNumberInput"],
+            [data-testid="stSelectbox"],
+            [data-testid="stMultiSelect"],
+            [data-testid="stTextArea"],
+            [data-testid="stDateInput"],
+            [data-testid="stTimeInput"] {
+                margin-bottom: .65rem !important;
+            }
+            [data-testid="stTextInput"] input,
+            [data-testid="stNumberInput"] input,
+            [data-testid="stDateInput"] input,
+            [data-testid="stTimeInput"] input,
+            [data-testid="stTextArea"] textarea {
+                font-size: 16px !important;
+            }
+            .stButton > button,
+            .stDownloadButton > button,
+            .stFormSubmitButton > button {
+                width: 100% !important;
+                min-height: 44px !important;
+                padding: .65rem .85rem !important;
+            }
+            [data-testid="stMain"] [data-testid="stRadio"] {
+                width: 100% !important;
+                margin: .1rem 0 .8rem !important;
+            }
+            [data-testid="stMain"] [data-testid="stRadio"] > div[role="radiogroup"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: 100% !important;
+                gap: .3rem !important;
+                padding: .3rem !important;
+            }
+            [data-testid="stMain"] [data-testid="stRadio"] label {
+                width: 100% !important;
+                min-width: 0 !important;
+                min-height: 44px !important;
+                padding: .58rem .45rem !important;
+                white-space: nowrap !important;
+                font-size: .92rem !important;
+            }
+            [data-testid="stTabs"] [data-baseweb="tab-list"] {
+                display: flex !important;
+                overflow-x: auto !important;
+                flex-wrap: nowrap !important;
+                gap: .2rem !important;
+                padding: .25rem !important;
+                margin-bottom: .75rem !important;
+                scrollbar-width: thin;
+                scroll-snap-type: x proximity;
+                -webkit-overflow-scrolling: touch;
+            }
+            [data-testid="stTabs"] button[role="tab"] {
+                flex: 0 0 auto !important;
+                min-height: 42px !important;
+                padding: .5rem .68rem !important;
+                white-space: nowrap !important;
+                font-size: .88rem !important;
+                scroll-snap-align: start;
+            }
+            .nv-future-grid,
+            .nv-result-grid {
+                grid-template-columns: 1fr !important;
+                gap: .6rem !important;
+            }
+            .nv-score-wrap {
+                align-items: flex-start !important;
+                flex-direction: column !important;
+            }
+            .nv-score-ring {
+                width: 92px !important;
+                height: 92px !important;
+                flex-basis: 92px !important;
+            }
+            [data-testid="stCameraInput"],
+            [data-testid="stFileUploader"] {
+                padding: .55rem !important;
+                border-radius: 15px !important;
+            }
+            [data-testid="stDataFrame"],
+            [data-testid="stTable"],
+            [data-testid="stDataEditor"] {
+                font-size: .82rem !important;
+            }
+            details[data-testid="stExpander"] {
+                border-radius: 14px !important;
+            }
+            [data-testid="stVerticalBlock"] {
+                min-width: 0 !important;
+            }
+        }
+        @media (max-width: 390px) {
+            .block-container { padding-left: .55rem !important; padding-right: .55rem !important; }
+            .nv-title { font-size: 1.58rem !important; }
+            [data-testid="stMain"] [data-testid="stRadio"] label {
+                font-size: .84rem !important;
+                padding-left: .32rem !important;
+                padding-right: .32rem !important;
+            }
+            [data-testid="stTabs"] button[role="tab"] {
+                font-size: .82rem !important;
+                padding-left: .55rem !important;
+                padding-right: .55rem !important;
+            }
         }
         </style>
         """,
@@ -1100,7 +1525,10 @@ def init_state() -> None:
         "elite_voice_transcript": "",
         "elite_voice_result": None,
         "elite_new_recovery_code": "",
-        "last_activity_at": datetime.now(),
+        "timezone_mode": "auto",
+        "manual_timezone_name": "",
+        "timezone_loaded_for_user": None,
+        "last_activity_at": utc_now(),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1458,7 +1886,8 @@ def render_auth() -> None:
                     st.session_state.user_id = user.id
                     st.session_state.username = user.username
                     st.session_state.page = "Dashboard"
-                    st.session_state.last_activity_at = datetime.now()
+                    st.session_state.timezone_loaded_for_user = None
+                    st.session_state.last_activity_at = utc_now()
                     st.rerun()
                 else:
                     st.error(st.session_state.get("auth_error") or "The username, email, or password is incorrect.")
@@ -1511,6 +1940,7 @@ def sidebar(user: User) -> None:
     with st.sidebar:
         st.markdown('<div class="nv-brand">Nouri<span>Volt</span></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="nv-user">Signed in as {user.display_name or user.username}</div>', unsafe_allow_html=True)
+        st.caption(f"Local time zone: {active_timezone_name()}")
 
         # Move users from former standalone pages into the consolidated sections.
         legacy_page_map = {
@@ -1557,6 +1987,9 @@ def sidebar(user: User) -> None:
             st.session_state.user_id = None
             st.session_state.username = None
             st.session_state.page = "Dashboard"
+            st.session_state.timezone_loaded_for_user = None
+            st.session_state.timezone_mode = "auto"
+            st.session_state.manual_timezone_name = ""
             st.rerun()
 
 
@@ -1579,7 +2012,7 @@ def today_nutrition(session: Session, user: User, selected_date: date) -> dict[s
 
 def render_dashboard(user: User) -> None:
     hero("Today", f"Welcome back, {user.display_name or user.username}", "See your daily targets, recent training, and current progress in one place.")
-    selected_date = st.date_input("Dashboard date", value=date.today(), format="MM/DD/YYYY", key="dashboard_date")
+    selected_date = st.date_input("Dashboard date", value=local_today(), format="MM/DD/YYYY", key="dashboard_date")
 
     with SessionLocal() as session:
         totals = today_nutrition(session, user, selected_date)
@@ -1708,7 +2141,7 @@ def render_dashboard(user: User) -> None:
 
 def render_nutrition(user: User) -> None:
     hero("Nutrition", "Fuel your day", "Log meals, monitor calories and macros, and keep hydration visible.")
-    selected_date = st.date_input("Log date", value=date.today(), format="MM/DD/YYYY", key="nutrition_date")
+    selected_date = st.date_input("Log date", value=local_today(), format="MM/DD/YYYY", key="nutrition_date")
 
     with SessionLocal() as session:
         totals = today_nutrition(session, user, selected_date)
@@ -1892,7 +2325,7 @@ def render_smart_scan(user: User) -> None:
                     )
 
                 with st.form("save_food_photo_result"):
-                    log_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="food_photo_log_date")
+                    log_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="food_photo_log_date")
                     meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="food_photo_meal")
                     food_name = st.text_input("Food name", value=str(result.get("dish_name") or "Scanned meal"))
                     serving = st.text_input("Serving", value=str(result.get("serving_description") or "1 serving"))
@@ -2029,7 +2462,7 @@ def render_smart_scan(user: User) -> None:
                 render_macro_result(barcode_result, "Product database result")
 
                 with st.form("save_barcode_result"):
-                    log_date = st.date_input("Diary date", value=date.today(), format="MM/DD/YYYY", key="barcode_log_date")
+                    log_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="barcode_log_date")
                     meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="barcode_meal")
                     food_name = st.text_input("Food name", value=str(product.get("product_name") or "Scanned product"))
                     serving = st.text_input("Serving", value=f"{servings:g} × {serving_text}")
@@ -2071,7 +2504,7 @@ def render_smart_scan(user: User) -> None:
                         st.write(ingredients)
 
     with navigator_tab:
-        target_date = st.date_input("Plan date", value=date.today(), format="MM/DD/YYYY", key="navigator_date")
+        target_date = st.date_input("Plan date", value=local_today(), format="MM/DD/YYYY", key="navigator_date")
         with SessionLocal() as session:
             totals = today_nutrition(session, user, target_date)
         remaining_meals = st.slider("Meals remaining", min_value=1, max_value=4, value=2)
@@ -2150,7 +2583,7 @@ def render_readiness(user: User) -> None:
         "Readiness Pulse",
         "Combine sleep, energy, stress, soreness, mood, nutrition, and hydration into a daily training signal.",
     )
-    selected_date = st.date_input("Check-in date", value=date.today(), format="MM/DD/YYYY", key="readiness_date")
+    selected_date = st.date_input("Check-in date", value=local_today(), format="MM/DD/YYYY", key="readiness_date")
     with SessionLocal() as session:
         existing = session.scalar(
             select(DailyCheckIn).where(
@@ -2294,7 +2727,7 @@ def render_workouts(user: User) -> None:
 
     with tab_session:
         with st.form("workout_session_form", clear_on_submit=True):
-            workout_date = st.date_input("Workout date", value=date.today(), format="MM/DD/YYYY")
+            workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY")
             workout_name = st.text_input("Workout name", placeholder="Upper body strength")
             category = st.selectbox("Category", ["Strength", "Cardio", "Mobility", "Sports", "HIIT", "Recovery", "Other"])
             c1, c2 = st.columns(2)
@@ -2394,7 +2827,7 @@ def render_workouts(user: User) -> None:
 def render_progress(user: User) -> None:
     hero("Progress", "Measure what changes", "Track weight, body composition, and measurements over time.")
     with st.form("measurement_form", clear_on_submit=True):
-        measurement_date = st.date_input("Measurement date", value=date.today(), format="MM/DD/YYYY")
+        measurement_date = st.date_input("Measurement date", value=local_today(), format="MM/DD/YYYY")
         c1, c2, c3 = st.columns(3)
         weight = c1.number_input("Weight (lb)", min_value=0.0, max_value=1500.0, value=0.0, step=0.1)
         body_fat = c2.number_input("Body fat (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1)
@@ -2446,7 +2879,7 @@ def render_goals(user: User) -> None:
         c3, c4, c5 = st.columns(3)
         current = c3.number_input("Current value", value=0.0)
         target = c4.number_input("Target value", value=1.0)
-        target_date = c5.date_input("Target date", value=date.today() + timedelta(days=30), format="MM/DD/YYYY")
+        target_date = c5.date_input("Target date", value=local_today() + timedelta(days=30), format="MM/DD/YYYY")
         submitted = st.form_submit_button("Create goal", type="primary", width="stretch")
     if submitted:
         if not title.strip():
@@ -2543,6 +2976,9 @@ def create_export(user: User) -> bytes:
         goals = session.scalars(select(Goal).where(Goal.user_id == user.id)).all()
         smart_scans = session.scalars(select(SmartScan).where(SmartScan.user_id == user.id)).all()
         daily_checkins = session.scalars(select(DailyCheckIn).where(DailyCheckIn.user_id == user.id)).all()
+        timezone_preference = session.scalar(
+            select(UserTimezonePreference).where(UserTimezonePreference.user_id == user.id)
+        )
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -2566,6 +3002,14 @@ def create_export(user: User) -> bytes:
         archive.writestr("goals.csv", dataframe_csv(goal_export_rows))
         archive.writestr("smart_scans.csv", dataframe_csv([{c.name: getattr(x, c.name) for c in SmartScan.__table__.columns if c.name != "user_id"} for x in smart_scans]))
         archive.writestr("daily_checkins.csv", dataframe_csv([{c.name: getattr(x, c.name) for c in DailyCheckIn.__table__.columns if c.name != "user_id"} for x in daily_checkins]))
+        archive.writestr(
+            "timezone_settings.csv",
+            dataframe_csv([{
+                "mode": timezone_preference.mode if timezone_preference else "auto",
+                "timezone_name": timezone_preference.timezone_name if timezone_preference else "",
+                "effective_timezone_at_export": active_timezone_name(),
+            }]),
+        )
         for elite_filename, elite_bytes in elite_export_files(SessionLocal, ELITE_MODELS, user.id).items():
             archive.writestr(f"elite/{elite_filename}", elite_bytes)
     return output.getvalue()
@@ -2608,11 +3052,17 @@ def render_data_account(user: User) -> None:
             st.error("The confirmation text does not match.")
         else:
             with SessionLocal() as session:
+                session.execute(
+                    delete(UserTimezonePreference).where(UserTimezonePreference.user_id == user.id)
+                )
                 session.execute(delete(User).where(User.id == user.id))
                 session.commit()
             st.session_state.user_id = None
             st.session_state.username = None
             st.session_state.page = "Dashboard"
+            st.session_state.timezone_loaded_for_user = None
+            st.session_state.timezone_mode = "auto"
+            st.session_state.manual_timezone_name = ""
             st.success("Account deleted.")
             st.rerun()
 
@@ -2730,9 +3180,72 @@ def render_progress_center(user: User) -> None:
         render_progress(user)
 
 
+def render_timezone_settings(user: User) -> None:
+    """Let each account follow its device time zone or save a manual override."""
+    hero(
+        "Local time",
+        "Use the correct day wherever you are",
+        "NouriVolt uses your device time zone automatically. You can save a specific time zone for this account when needed.",
+    )
+    detected = browser_timezone_name()
+    effective_name = active_timezone_name()
+    effective_now = datetime.now(ZoneInfo(effective_name))
+    detected_text = detected or "Unavailable in this Streamlit version or browser session"
+    st.markdown(
+        f"""
+        <div class="nv-card">
+            <div class="nv-label">Current local date and time</div>
+            <div class="nv-value" style="font-size:1.45rem">{effective_now.strftime('%m/%d/%Y · %I:%M %p')}</div>
+            <div class="nv-meta">Active time zone: {html.escape(effective_name)}</div>
+            <div class="nv-meta">Device detected: {html.escape(detected_text)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    saved_mode = st.session_state.get("timezone_mode", "auto")
+    current_mode_label = MANUAL_TIMEZONE_LABEL if saved_mode == "manual" else AUTO_TIMEZONE_LABEL
+    choices = timezone_choices()
+    current_manual = _valid_timezone_name(st.session_state.get("manual_timezone_name"))
+    default_manual = current_manual or detected or _valid_timezone_name(DEFAULT_TIMEZONE_NAME) or "UTC"
+    if default_manual not in choices:
+        choices = [default_manual] + choices
+
+    with st.form("timezone_settings_form"):
+        mode_label = st.radio(
+            "Time-zone behavior",
+            [AUTO_TIMEZONE_LABEL, MANUAL_TIMEZONE_LABEL],
+            index=0 if current_mode_label == AUTO_TIMEZONE_LABEL else 1,
+        )
+        selected_timezone = st.selectbox(
+            "Specific time zone",
+            choices,
+            index=choices.index(default_manual),
+            disabled=mode_label == AUTO_TIMEZONE_LABEL,
+            help="Use an IANA time zone such as America/Chicago or America/Nassau.",
+        )
+        submitted = st.form_submit_button("Save time-zone settings", type="primary", width="stretch")
+
+    if submitted:
+        mode = "auto" if mode_label == AUTO_TIMEZONE_LABEL else "manual"
+        try:
+            save_timezone_preference(user.id, mode, selected_timezone)
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            st.success("Time-zone settings saved. Dates now follow the selected local day.")
+            st.rerun()
+
+    if detected is None:
+        st.info(
+            "Automatic detection requires Streamlit 1.43 or newer. Until it is available, "
+            f"NouriVolt uses {effective_name}. You can choose a specific time zone above."
+        )
+
+
 def render_settings_center(user: User) -> None:
-    """Keep profile, data, family, coach, security, and billing tools together."""
-    options = ["Profile", "Data & account", "Family & Security"]
+    """Keep profile, time zone, data, family, coach, security, and billing tools together."""
+    options = ["Profile", "Time zone", "Data & account", "Family & Security"]
     current = st.session_state.get("settings_subpage", options[0])
     if current not in options:
         current = options[0]
@@ -2744,7 +3257,9 @@ def render_settings_center(user: User) -> None:
         key="settings_section_selector",
     )
     st.session_state.settings_subpage = selected
-    if selected == "Data & account":
+    if selected == "Time zone":
+        render_timezone_settings(user)
+    elif selected == "Data & account":
         render_data_account(user)
     elif selected == "Family & Security":
         render_family_and_security(user, elite_context())
@@ -2759,22 +3274,25 @@ def render_app() -> None:
         return
 
     timeout_minutes = session_timeout_minutes(SessionLocal, ELITE_MODELS, int(st.session_state.user_id))
-    last_activity = st.session_state.get("last_activity_at") or datetime.now()
-    if datetime.now() - last_activity > timedelta(minutes=timeout_minutes):
+    last_activity = st.session_state.get("last_activity_at") or utc_now()
+    if utc_now() - last_activity > timedelta(minutes=timeout_minutes):
         st.session_state.user_id = None
         st.session_state.username = None
         st.session_state.page = "Dashboard"
+        st.session_state.timezone_loaded_for_user = None
         st.session_state.auth_error = "Your session expired. Sign in again."
         st.rerun()
-    st.session_state.last_activity_at = datetime.now()
+    st.session_state.last_activity_at = utc_now()
 
     with SessionLocal() as session:
         user = get_user(session, int(st.session_state.user_id))
         if not user:
             st.session_state.user_id = None
+            st.session_state.timezone_loaded_for_user = None
             st.rerun()
         session.expunge(user)
 
+    load_timezone_preference(user.id)
     sidebar(user)
     page = st.session_state.page
     if page == "Dashboard":
