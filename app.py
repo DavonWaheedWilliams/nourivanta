@@ -8,7 +8,7 @@ import sys
 import zipfile
 from functools import wraps
 from statistics import mean
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 from pathlib import Path
 from typing import Any
@@ -120,7 +120,7 @@ def local_today() -> date:
 
 def utc_now() -> datetime:
     """Return a naive UTC timestamp for security and session calculations."""
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _streamlit_version_tuple() -> tuple[int, int, int]:

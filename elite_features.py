@@ -6,7 +6,7 @@ import math
 import os
 import secrets
 import string
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote_plus
 from types import SimpleNamespace
@@ -60,7 +60,7 @@ def local_today() -> date:
 
 def utc_now() -> datetime:
     """Return a naive UTC timestamp for security calculations."""
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def utc_naive_to_local(value: datetime) -> datetime:
