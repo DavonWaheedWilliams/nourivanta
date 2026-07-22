@@ -3102,6 +3102,7 @@ def render_nutrition_center(user: User) -> None:
         options,
         index=options.index(current),
         horizontal=True,
+        label_visibility="collapsed",
         key="nutrition_section_selector",
     )
     st.session_state.nutrition_subpage = selected
@@ -3147,6 +3148,7 @@ def render_readiness_center(user: User) -> None:
         options,
         index=options.index(current),
         horizontal=True,
+        label_visibility="collapsed",
         key="readiness_section_selector",
     )
     st.session_state.readiness_subpage = selected
@@ -3167,6 +3169,7 @@ def render_progress_center(user: User) -> None:
         options,
         index=options.index(current),
         horizontal=True,
+        label_visibility="collapsed",
         key="progress_section_selector",
     )
     st.session_state.progress_subpage = selected
@@ -3254,6 +3257,7 @@ def render_settings_center(user: User) -> None:
         options,
         index=options.index(current),
         horizontal=True,
+        label_visibility="collapsed",
         key="settings_section_selector",
     )
     st.session_state.settings_subpage = selected
