@@ -2716,6 +2716,43 @@ def render_readiness(user: User) -> None:
     else:
         st.markdown('<div class="nv-empty">Save daily check-ins to build your readiness trend.</div>', unsafe_allow_html=True)
 
+    with SessionLocal() as session:
+        saved_checkins = session.scalars(
+            select(DailyCheckIn)
+            .where(DailyCheckIn.user_id == user.id)
+            .order_by(DailyCheckIn.checkin_date.desc(), DailyCheckIn.id.desc())
+        ).all()
+
+    if saved_checkins:
+        st.markdown("#### Delete a readiness check-in")
+        checkin_to_delete = st.selectbox(
+            "Choose a readiness item to delete",
+            saved_checkins,
+            format_func=lambda item: (
+                f"{item.checkin_date.strftime('%m/%d/%Y')} · "
+                f"Sleep {item.sleep_hours:.1f} h · Energy {item.energy}/10 · "
+                f"Stress {item.stress}/10"
+            ),
+            key="readiness_delete_checkin_select",
+        )
+        if st.button(
+            "Delete selected readiness item",
+            key="readiness_delete_checkin_button",
+            width="stretch",
+        ):
+            with SessionLocal() as session:
+                owned_checkin = session.scalar(
+                    select(DailyCheckIn).where(
+                        DailyCheckIn.id == checkin_to_delete.id,
+                        DailyCheckIn.user_id == user.id,
+                    )
+                )
+                if owned_checkin:
+                    session.delete(owned_checkin)
+                    session.commit()
+            st.success("Readiness check-in deleted.")
+            st.rerun()
+
 
 def render_workouts(user: User) -> None:
     hero("Training", "Build your workout record", "Save sessions and detailed sets without losing data when you log out.")
@@ -3094,10 +3131,8 @@ def elite_context() -> dict[str, Any]:
 
 def render_nutrition_center(user: User) -> None:
     """Keep all food, scanning, forecasting, and meal-planning tools together."""
-    options = ["Food & water", "Smart Scan", "Nutrition Insights", "Meal Planner"]
+    options = ["Food & water", "Smart Scan", "Food Intelligence", "Meal Planner"]
     current = st.session_state.get("nutrition_subpage", options[0])
-    if current == "Food Intelligence":
-        current = "Nutrition Insights"
     if current not in options:
         current = options[0]
     selected = st.radio(
@@ -3111,7 +3146,7 @@ def render_nutrition_center(user: User) -> None:
     st.session_state.nutrition_subpage = selected
     if selected == "Smart Scan":
         render_smart_scan(user)
-    elif selected == "Nutrition Insights":
+    elif selected == "Food Intelligence":
         render_food_intelligence(user, elite_context())
     elif selected == "Meal Planner":
         render_meal_planner(user, elite_context())
