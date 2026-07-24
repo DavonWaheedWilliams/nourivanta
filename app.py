@@ -2449,21 +2449,32 @@ def render_smart_scan(user: User) -> None:
                     unsafe_allow_html=True,
                 )
 
+                if st.session_state.get("barcode_basis") in {"100 g", "Custom grams"}:
+                    st.session_state.barcode_basis = "Custom amount"
                 basis = st.radio(
                     "Nutrition basis",
-                    ["Database serving", "Manual per serving", "100 g", "Custom grams"],
+                    ["Database serving", "Manual per serving", "Custom amount"],
                     horizontal=True,
                     key="barcode_basis",
                 )
+                custom_amount = 100.0
+                custom_unit = "grams"
                 custom_grams = 100.0
-                if basis == "Custom grams":
-                    custom_grams = st.number_input(
-                        "Portion grams",
-                        min_value=1.0,
+                if basis == "Custom amount":
+                    amount_col, unit_col = st.columns([2, 1])
+                    custom_amount = amount_col.number_input(
+                        "Portion amount",
+                        min_value=0.1,
                         value=100.0,
-                        step=5.0,
+                        step=1.0,
                         key="barcode_custom_grams",
                     )
+                    custom_unit = unit_col.selectbox(
+                        "Unit",
+                        ["grams", "ounces"],
+                        key="barcode_custom_unit",
+                    )
+                    custom_grams = custom_amount if custom_unit == "grams" else custom_amount * 28.349523125
                 servings = st.number_input(
                     "Number of servings",
                     min_value=0.1,
@@ -2527,13 +2538,10 @@ def render_smart_scan(user: User) -> None:
                         source_values = product.get("per_100g") or {}
                         serving_text = "100 g"
                     factor = servings
-                elif basis == "100 g":
-                    source_values = product.get("per_100g") or {}
-                    serving_text = "100 g"
-                    factor = servings
                 else:
                     source_values = product.get("per_100g") or {}
-                    serving_text = f"{custom_grams:g} g"
+                    unit_label = "g" if custom_unit == "grams" else "oz"
+                    serving_text = f"{custom_amount:g} {unit_label}"
                     factor = custom_grams / 100 * servings
 
                 barcode_result = {
