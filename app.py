@@ -2053,6 +2053,7 @@ def render_dashboard(user: User) -> None:
     ready_score = readiness_score(daily_checkin, totals, user)
     ready_title, ready_copy = readiness_label(ready_score)
 
+    # Keep the four core nutrition targets together at the top.
     r1, r2, r3, r4 = st.columns(4)
     with r1:
         circular_metric_card(
@@ -2074,45 +2075,46 @@ def render_dashboard(user: User) -> None:
         )
     with r3:
         circular_metric_card(
-            "Water",
-            f"{ml_to_fl_oz(totals['water']):.0f}",
-            "fl oz",
-            f"of {ml_to_fl_oz(user.water_target_ml):.0f} fl oz",
-            totals["water"] / max(user.water_target_ml, 1) * 100,
-            "#2F80ED",
+            "Carbohydrates",
+            f"{totals['carbs']:.0f}",
+            "grams",
+            f"of {user.carb_target} g",
+            totals["carbs"] / max(user.carb_target, 1) * 100,
+            "#F2994A",
         )
     with r4:
         circular_metric_card(
-            "Readiness",
-            f"{ready_score}",
-            "score",
-            ready_title,
-            ready_score,
-            "#27AE60" if ready_score >= 80 else "#16B8C4" if ready_score >= 60 else "#F2994A" if ready_score >= 40 else "#EB5757",
+            "Fat",
+            f"{totals['fat']:.0f}",
+            "grams",
+            f"of {user.fat_target} g",
+            totals["fat"] / max(user.fat_target, 1) * 100,
+            "#D65DB1",
         )
 
     st.subheader("Daily balance")
     b1, b2, b3, b4 = st.columns(4)
     with b1:
-        metric_card("Training", f"{workout_minutes} min", f"{workout_count} session{'s' if workout_count != 1 else ''}")
-    with b2:
         metric_card(
-            "Carbohydrates",
-            f"{totals['carbs']:.0f} g",
-            f"of {user.carb_target} g",
-            totals["carbs"] / max(user.carb_target, 1) * 100,
-            accent="#F2994A",
-            accent_end="#F2C94C",
+            "Water",
+            f"{ml_to_fl_oz(totals['water']):.0f} fl oz",
+            f"of {ml_to_fl_oz(user.water_target_ml):.0f} fl oz",
+            totals["water"] / max(user.water_target_ml, 1) * 100,
+            accent="#2F80ED",
+            accent_end="#56CCF2",
+        )
+    with b2:
+        readiness_accent = "#27AE60" if ready_score >= 80 else "#16B8C4" if ready_score >= 60 else "#F2994A" if ready_score >= 40 else "#EB5757"
+        metric_card(
+            "Readiness",
+            f"{ready_score}",
+            ready_title,
+            ready_score,
+            accent=readiness_accent,
+            accent_end=readiness_accent,
         )
     with b3:
-        metric_card(
-            "Fat",
-            f"{totals['fat']:.0f} g",
-            f"of {user.fat_target} g",
-            totals["fat"] / max(user.fat_target, 1) * 100,
-            accent="#D65DB1",
-            accent_end="#845EC2",
-        )
+        metric_card("Training", f"{workout_minutes} min", f"{workout_count} session{'s' if workout_count != 1 else ''}")
     with b4:
         remaining = max(0, user.calorie_target - totals["calories"])
         metric_card("Calories remaining", f"{remaining:.0f}", "Based on your daily target")
@@ -2692,7 +2694,7 @@ def render_smart_scan(user: User) -> None:
             history_df = pd.DataFrame(
                 [
                     {
-                        "Date": item.scan_date,
+                        "Date": item.scan_date.strftime("%m/%d/%Y"),
                         "Source": item.source,
                         "Food": item.food_name,
                         "Serving": item.serving,
@@ -2706,6 +2708,34 @@ def render_smart_scan(user: User) -> None:
                 ]
             )
             st.dataframe(history_df, width="stretch", hide_index=True)
+
+            scan_options = {item.id: item for item in scans}
+            selected_scan_id = st.selectbox(
+                "Delete a scan-history item",
+                options=[None, *scan_options.keys()],
+                format_func=lambda value: (
+                    "Select a saved scan"
+                    if value is None
+                    else f"{scan_options[value].scan_date.strftime('%m/%d/%Y')} · "
+                    f"{scan_options[value].source} · {scan_options[value].food_name}"
+                ),
+                key="scan_history_delete_choice",
+            )
+            if st.button(
+                "Delete selected scan",
+                disabled=selected_scan_id is None,
+                key="delete_selected_scan_history",
+            ):
+                with SessionLocal() as session:
+                    session.execute(
+                        delete(SmartScan).where(
+                            SmartScan.id == selected_scan_id,
+                            SmartScan.user_id == user.id,
+                        )
+                    )
+                    session.commit()
+                st.success("Scan-history item deleted.")
+                st.rerun()
         else:
             st.markdown('<div class="nv-empty">Food-photo and barcode scans will appear here after you save them.</div>', unsafe_allow_html=True)
 
@@ -2986,6 +3016,88 @@ def render_workouts(user: User) -> None:
                     if sets:
                         df = pd.DataFrame([{"Exercise": x.exercise_name, "Set": x.set_number, "Reps": x.reps, "Weight (lb)": x.weight_lb, "Distance (mi)": x.distance_miles, "Minutes": x.duration_min} for x in sets])
                         st.dataframe(df, width="stretch", hide_index=True)
+
+                        set_options = {item.id: item for item in sets}
+                        selected_set_id = st.selectbox(
+                            "Exercise set to edit",
+                            options=list(set_options),
+                            format_func=lambda value: (
+                                f"{set_options[value].exercise_name} · Set {set_options[value].set_number} · "
+                                f"{set_options[value].reps} reps · {set_options[value].weight_lb:g} lb"
+                            ),
+                            key=f"history_set_choice_{workout.id}",
+                        )
+                        selected_set = set_options[selected_set_id]
+                        with st.form(f"edit_history_set_form_{workout.id}_{selected_set_id}"):
+                            e1, e2, e3 = st.columns(3)
+                            edited_set_number = e1.number_input(
+                                "Set",
+                                min_value=1,
+                                max_value=100,
+                                value=int(selected_set.set_number),
+                                step=1,
+                                key=f"edit_set_number_{workout.id}_{selected_set_id}",
+                            )
+                            edited_reps = e2.number_input(
+                                "Reps",
+                                min_value=0,
+                                max_value=1000,
+                                value=int(selected_set.reps),
+                                step=1,
+                                key=f"edit_reps_{workout.id}_{selected_set_id}",
+                            )
+                            edited_weight = e3.number_input(
+                                "Weight (lb)",
+                                min_value=0.0,
+                                max_value=3000.0,
+                                value=float(selected_set.weight_lb),
+                                step=2.5,
+                                key=f"edit_weight_{workout.id}_{selected_set_id}",
+                            )
+                            e4, e5 = st.columns(2)
+                            edited_distance = e4.number_input(
+                                "Distance (miles)",
+                                min_value=0.0,
+                                max_value=500.0,
+                                value=float(selected_set.distance_miles),
+                                step=0.1,
+                                key=f"edit_distance_{workout.id}_{selected_set_id}",
+                            )
+                            edited_minutes = e5.number_input(
+                                "Minutes",
+                                min_value=0.0,
+                                max_value=600.0,
+                                value=float(selected_set.duration_min),
+                                step=0.5,
+                                key=f"edit_minutes_{workout.id}_{selected_set_id}",
+                            )
+                            save_set_changes = st.form_submit_button(
+                                "Save set changes",
+                                type="primary",
+                                width="stretch",
+                            )
+                        if save_set_changes:
+                            with SessionLocal() as session:
+                                owned_set = session.scalar(
+                                    select(ExerciseSet)
+                                    .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
+                                    .where(
+                                        ExerciseSet.id == selected_set_id,
+                                        WorkoutSession.id == workout.id,
+                                        WorkoutSession.user_id == user.id,
+                                    )
+                                )
+                                if owned_set is None:
+                                    st.error("This exercise set could not be found.")
+                                else:
+                                    owned_set.set_number = int(edited_set_number)
+                                    owned_set.reps = int(edited_reps)
+                                    owned_set.weight_lb = float(edited_weight)
+                                    owned_set.distance_miles = float(edited_distance)
+                                    owned_set.duration_min = float(edited_minutes)
+                                    session.commit()
+                                    st.success("Exercise set updated.")
+                            st.rerun()
                     else:
                         st.caption("No detailed exercise sets saved.")
                     if st.button("Delete workout", key=f"delete_workout_{workout.id}"):
