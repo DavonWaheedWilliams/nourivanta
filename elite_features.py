@@ -23,6 +23,21 @@ from sqlalchemy.orm import Mapped, mapped_column
 DEFAULT_TIMEZONE_NAME = os.getenv("APP_TIMEZONE", "America/Chicago")
 
 
+def _openai_api_key() -> str:
+    """Read the OpenAI key from session state, environment, or Streamlit secrets."""
+    session_value = st.session_state.get("openai_api_key", "")
+    if session_value:
+        return str(session_value).strip()
+    env_value = os.getenv("OPENAI_API_KEY", "")
+    if env_value:
+        return str(env_value).strip()
+    try:
+        secret_value = st.secrets.get("OPENAI_API_KEY", "")
+    except (FileNotFoundError, KeyError, AttributeError):
+        secret_value = ""
+    return str(secret_value).strip() if secret_value else ""
+
+
 def _valid_timezone_name(value: str | None) -> str | None:
     if not value:
         return None
@@ -741,7 +756,7 @@ def _render_coach(user: Any, ctx: dict[str, Any]) -> None:
     report = _deterministic_coach_report(metrics)
     if st.button("Generate coaching report", type="primary", width="stretch"):
         st.session_state.elite_coach_report = report
-    api_key = st.session_state.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
+    api_key = _openai_api_key()
     if st.button("Enhance report with AI", disabled=not bool(api_key), width="stretch"):
         try:
             with st.spinner("Building your coaching narrative..."):
@@ -870,7 +885,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
         c1, c2 = st.columns(2)
         label_camera = None
         label_upload = None
-        api_key = st.session_state.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
+        api_key = _openai_api_key()
         source_file = None
         with c1:
             label_camera = st.camera_input("Photograph the Nutrition Facts panel", key="elite_label_camera")
@@ -1599,7 +1614,7 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
     SessionLocal = ctx["SessionLocal"]
     voice_tab, wearable_tab = st.tabs(["Voice logging", "Wearable Bridge"])
     with voice_tab:
-        api_key = st.session_state.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
+        api_key = _openai_api_key()
         audio = None
         if hasattr(st, "audio_input"):
             audio = st.audio_input("Record a food, water, or workout command")

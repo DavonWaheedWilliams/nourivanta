@@ -67,6 +67,21 @@ AUTO_TIMEZONE_LABEL = "Follow my device automatically"
 MANUAL_TIMEZONE_LABEL = "Use a specific time zone"
 
 
+def _secure_setting(name: str) -> str:
+    """Read a server-side secret without exposing it in the interface."""
+    session_value = st.session_state.get(name.lower()) if hasattr(st, "session_state") else None
+    if session_value:
+        return str(session_value).strip()
+    env_value = os.getenv(name, "")
+    if env_value:
+        return str(env_value).strip()
+    try:
+        secret_value = st.secrets.get(name, "")
+    except (FileNotFoundError, KeyError, AttributeError):
+        secret_value = ""
+    return str(secret_value).strip() if secret_value else ""
+
+
 def _valid_timezone_name(value: str | None) -> str | None:
     """Return a valid IANA time-zone name or None."""
     if not value:
@@ -1517,7 +1532,7 @@ def init_state() -> None:
         "username": None,
         "page": "Dashboard",
         "auth_mode": "Sign in",
-        "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+        "openai_api_key": _secure_setting("OPENAI_API_KEY"),
         "food_scan_result": None,
         "barcode_product": None,
         "barcode_value": "",
