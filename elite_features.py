@@ -1176,8 +1176,18 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
 
     with overload_tab:
         with SessionLocal() as session:
-            workout_ids = session.scalars(select(WorkoutSession.id).where(WorkoutSession.user_id == user.id)).all()
-            sets = session.scalars(select(ExerciseSet).where(ExerciseSet.session_id.in_(workout_ids)).order_by(ExerciseSet.id.desc())).all() if workout_ids else []
+            workouts = session.scalars(
+                select(WorkoutSession)
+                .where(WorkoutSession.user_id == user.id)
+                .order_by(WorkoutSession.workout_date.asc(), WorkoutSession.id.asc())
+            ).all()
+            workout_ids = [workout.id for workout in workouts]
+            sets = session.scalars(
+                select(ExerciseSet)
+                .where(ExerciseSet.session_id.in_(workout_ids))
+                .order_by(ExerciseSet.id.asc())
+            ).all() if workout_ids else []
+        workout_by_id = {workout.id: workout for workout in workouts}
         names = sorted({x.exercise_name for x in sets})
         if not names:
             st.info("Complete exercise sets to generate overload recommendations and personal records.")
@@ -1188,17 +1198,25 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             if alternatives:
                 st.caption("Substitutions: " + ", ".join(alternatives))
             st.link_button("Open exercise demonstration search", "https://www.youtube.com/results?search_query=" + quote_plus(exercise + " exercise form"))
-            history = [x for x in sets if x.exercise_name == exercise and x.completed]
-            history.sort(key=lambda x: x.id)
+            history = [
+                x for x in sets
+                if x.exercise_name == exercise and x.completed and workout_by_id.get(x.session_id)
+            ]
+            history.sort(key=lambda x: (workout_by_id[x.session_id].workout_date, x.id))
             if history:
-                latest = history[-1]
-                best_weight = max(x.weight_lb for x in history)
-                best_reps = max(x.reps for x in history)
-                best_e1rm = max((x.weight_lb * (1 + x.reps / 30)) for x in history if x.weight_lb > 0 and x.reps > 0) if any(x.weight_lb > 0 and x.reps > 0 for x in history) else 0
-                if latest.reps >= 12 and latest.weight_lb > 0:
-                    recommendation = f"Try {latest.weight_lb + 5:g} lb for {max(6, latest.reps - 3)} to {latest.reps - 1} reps."
-                elif latest.weight_lb > 0:
-                    recommendation = f"Keep {latest.weight_lb:g} lb and target {latest.reps + 1} reps before adding weight."
+                weighted_history = [x for x in history if x.weight_lb > 0 and x.reps > 0]
+                reps_only_history = [x for x in history if x.weight_lb <= 0 and x.reps > 0]
+                latest_progress_set = weighted_history[-1] if weighted_history else reps_only_history[-1] if reps_only_history else history[-1]
+                best_weight = max((x.weight_lb for x in weighted_history), default=0)
+                best_reps = max((x.reps for x in history if x.reps > 0), default=0)
+                best_e1rm = max(
+                    (x.weight_lb * (1 + x.reps / 30) for x in weighted_history),
+                    default=0,
+                )
+                if latest_progress_set.weight_lb > 0 and latest_progress_set.reps >= 12:
+                    recommendation = f"Try {latest_progress_set.weight_lb + 5:g} lb for {max(6, latest_progress_set.reps - 3)} to {latest_progress_set.reps - 1} reps."
+                elif latest_progress_set.weight_lb > 0:
+                    recommendation = f"Keep {latest_progress_set.weight_lb:g} lb and target {latest_progress_set.reps + 1} reps before adding weight."
                 else:
                     recommendation = f"Add one repetition or a slightly harder variation of {exercise}."
                 st.markdown(
@@ -1212,8 +1230,35 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     """,
                     unsafe_allow_html=True,
                 )
-                volume_df = pd.DataFrame({"Set": list(range(1, len(history) + 1)), "Volume": [x.weight_lb * x.reps for x in history]}).set_index("Set")
-                st.line_chart(volume_df, width="stretch")
+
+                if weighted_history:
+                    volume_by_date: dict[date, float] = {}
+                    for set_row in weighted_history:
+                        workout_date = workout_by_id[set_row.session_id].workout_date
+                        volume_by_date[workout_date] = volume_by_date.get(workout_date, 0.0) + (set_row.weight_lb * set_row.reps)
+                    volume_df = pd.DataFrame(
+                        {"Weighted volume": list(volume_by_date.values())},
+                        index=pd.to_datetime(list(volume_by_date.keys())),
+                    )
+                    volume_df.index.name = "Workout date"
+                    st.caption("Weighted volume by workout date. Sets with zero weight or zero reps are excluded from this chart.")
+                    st.line_chart(volume_df, width="stretch")
+
+                if reps_only_history:
+                    reps_by_date: dict[date, int] = {}
+                    for set_row in reps_only_history:
+                        workout_date = workout_by_id[set_row.session_id].workout_date
+                        reps_by_date[workout_date] = reps_by_date.get(workout_date, 0) + int(set_row.reps)
+                    reps_df = pd.DataFrame(
+                        {"Reps-only volume": list(reps_by_date.values())},
+                        index=pd.to_datetime(list(reps_by_date.keys())),
+                    )
+                    reps_df.index.name = "Workout date"
+                    st.caption("Reps-only progression by workout date for sets saved without external weight.")
+                    st.line_chart(reps_df, width="stretch")
+
+                if not weighted_history and not reps_only_history:
+                    st.info("Add repetitions or weight to completed sets to generate a progression chart.")
 
     with recovery_tab:
         with SessionLocal() as session:
