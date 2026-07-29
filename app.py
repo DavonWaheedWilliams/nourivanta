@@ -3084,7 +3084,29 @@ def render_workouts(user: User) -> None:
                                 type="primary",
                                 width="stretch",
                             )
-                        if save_set_changes:
+                            delete_selected_set = st.form_submit_button(
+                                "Delete selected set",
+                                width="stretch",
+                            )
+                        if delete_selected_set:
+                            with SessionLocal() as session:
+                                owned_set = session.scalar(
+                                    select(ExerciseSet)
+                                    .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
+                                    .where(
+                                        ExerciseSet.id == selected_set_id,
+                                        WorkoutSession.id == workout.id,
+                                        WorkoutSession.user_id == user.id,
+                                    )
+                                )
+                                if owned_set is None:
+                                    st.error("This exercise set could not be found.")
+                                else:
+                                    session.delete(owned_set)
+                                    session.commit()
+                                    st.success("Exercise set deleted.")
+                            st.rerun()
+                        elif save_set_changes:
                             with SessionLocal() as session:
                                 owned_set = session.scalar(
                                     select(ExerciseSet)
