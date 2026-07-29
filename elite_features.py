@@ -1242,7 +1242,13 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     )
                     volume_df.index.name = "Workout date"
                     st.caption("Weighted volume by workout date. Sets with zero weight or zero reps are excluded from this chart.")
-                    st.line_chart(volume_df, width="stretch")
+                    if len(volume_df.index) == 1:
+                        st.scatter_chart(volume_df, width="stretch", height=320)
+                        only_date = volume_df.index[0].strftime("%m/%d/%Y")
+                        only_value = float(volume_df.iloc[0, 0])
+                        st.caption(f"One weighted workout is recorded: {only_date} · {only_value:,.0f} lb-reps. Additional workout dates will connect into a trend line.")
+                    else:
+                        st.line_chart(volume_df, width="stretch", height=320)
 
                 if reps_only_history:
                     reps_by_date: dict[date, int] = {}
@@ -1255,7 +1261,13 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     )
                     reps_df.index.name = "Workout date"
                     st.caption("Reps-only progression by workout date for sets saved without external weight.")
-                    st.line_chart(reps_df, width="stretch")
+                    if len(reps_df.index) == 1:
+                        st.scatter_chart(reps_df, width="stretch", height=320)
+                        only_date = reps_df.index[0].strftime("%m/%d/%Y")
+                        only_value = int(reps_df.iloc[0, 0])
+                        st.caption(f"One reps-only workout is recorded: {only_date} · {only_value:,} total reps. Additional workout dates will connect into a trend line.")
+                    else:
+                        st.line_chart(reps_df, width="stretch", height=320)
 
                 if not weighted_history and not reps_only_history:
                     st.info("Add repetitions or weight to completed sets to generate a progression chart.")
