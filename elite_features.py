@@ -12,11 +12,10 @@ from urllib.parse import quote_plus
 from types import SimpleNamespace
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -128,144 +127,20 @@ def _enhance_label_image(image: Image.Image) -> Image.Image:
     return enhanced
 
 
-def _summed_area_table(values: np.ndarray) -> np.ndarray:
-    return np.pad(values, ((1, 0), (1, 0)), mode="constant").cumsum(0).cumsum(1)
-
-
-def _rectangle_sum(table: np.ndarray, left: int, top: int, right: int, bottom: int) -> float:
-    return float(table[bottom, right] - table[top, right] - table[bottom, left] + table[top, left])
-
-
-def _find_label_panel_box(image: Image.Image) -> tuple[int, int, int, int] | None:
-    """Find a likely Nutrition Facts panel using text and edge density.
-
-    This is intentionally dependency-light so the existing deployment does not
-    need OpenCV. When confidence is low, the caller keeps the full image.
-    """
-    work = image.copy()
-    max_dimension = max(work.size)
-    if max_dimension > 900:
-        scale = 900 / max_dimension
-        work = work.resize(
-            (max(1, int(work.width * scale)), max(1, int(work.height * scale))),
-            Image.Resampling.BILINEAR,
-        )
-    else:
-        scale = 1.0
-
-    gray_image = ImageOps.autocontrast(ImageOps.grayscale(work), cutoff=1)
-    gray = np.asarray(gray_image, dtype=np.float32)
-    height, width = gray.shape
-    if min(height, width) < 120:
-        return None
-
-    # Dense horizontal and vertical strokes are characteristic of a nutrition panel.
-    grad_x = np.zeros_like(gray)
-    grad_y = np.zeros_like(gray)
-    grad_x[:, 1:] = np.abs(gray[:, 1:] - gray[:, :-1])
-    grad_y[1:, :] = np.abs(gray[1:, :] - gray[:-1, :])
-    edge = np.clip((grad_x + grad_y) / 95.0, 0.0, 1.0)
-    dark_text = np.clip((185.0 - gray) / 185.0, 0.0, 1.0)
-    feature = 0.78 * edge + 0.22 * dark_text
-
-    # A light blur makes the sliding-window score prefer a full text block over isolated clutter.
-    feature_image = Image.fromarray(np.uint8(np.clip(feature * 255.0, 0, 255)))
-    feature = np.asarray(feature_image.filter(ImageFilter.BoxBlur(max(1, min(width, height) // 180))), dtype=np.float32) / 255.0
-    table = _summed_area_table(feature)
-
-    global_mean = float(feature.mean()) + 1e-6
-    best_score = -1.0
-    best_box: tuple[int, int, int, int] | None = None
-
-    width_fractions = (0.28, 0.36, 0.45, 0.55, 0.66, 0.78)
-    height_fractions = (0.38, 0.50, 0.62, 0.76, 0.90)
-    for width_fraction in width_fractions:
-        window_width = max(80, int(width * width_fraction))
-        if window_width >= width:
-            continue
-        for height_fraction in height_fractions:
-            window_height = max(110, int(height * height_fraction))
-            if window_height >= height:
-                continue
-            aspect = window_height / max(1, window_width)
-            if not 0.65 <= aspect <= 3.4:
-                continue
-
-            step_x = max(10, window_width // 9)
-            step_y = max(10, window_height // 10)
-            area = window_width * window_height
-            area_fraction = area / float(width * height)
-
-            for top in range(0, height - window_height + 1, step_y):
-                bottom = top + window_height
-                for left in range(0, width - window_width + 1, step_x):
-                    right = left + window_width
-                    mean_feature = _rectangle_sum(table, left, top, right, bottom) / area
-                    region = gray[top:bottom:4, left:right:4]
-                    contrast = min(1.4, float(region.std()) / 62.0)
-                    light_ratio = float(np.mean(region > 150.0))
-                    dark_ratio = float(np.mean(region < 105.0))
-                    text_balance = min(1.0, (light_ratio + dark_ratio) * 1.25)
-                    size_bonus = 0.82 + 0.30 * min(1.0, area_fraction / 0.34)
-                    score = (mean_feature / global_mean) * (0.78 + 0.18 * contrast + 0.10 * text_balance) * size_bonus
-                    if score > best_score:
-                        best_score = score
-                        best_box = (left, top, right, bottom)
-
-    if best_box is None or best_score < 1.18:
-        return None
-
-    left, top, right, bottom = best_box
-    padding_x = int((right - left) * 0.07)
-    padding_y = int((bottom - top) * 0.06)
-    left = max(0, left - padding_x)
-    top = max(0, top - padding_y)
-    right = min(width, right + padding_x)
-    bottom = min(height, bottom + padding_y)
-
-    inverse_scale = 1.0 / scale
-    return (
-        int(left * inverse_scale),
-        int(top * inverse_scale),
-        min(image.width, int(right * inverse_scale)),
-        min(image.height, int(bottom * inverse_scale)),
-    )
-
-
-def _prepare_label_scan(image_bytes: bytes) -> dict[str, Any] | None:
+def _enhance_label_preview(image_bytes: bytes) -> bytes | None:
     image = _load_label_image(image_bytes)
     if image is None:
         return None
 
-    full_enhanced = _enhance_label_image(image)
-    panel_box = _find_label_panel_box(full_enhanced)
-    cropped = False
-    scan_image = full_enhanced
-    if panel_box:
-        candidate = full_enhanced.crop(panel_box)
-        if candidate.width >= 120 and candidate.height >= 160:
-            scan_image = _enhance_label_image(candidate)
-            cropped = True
-
-    if scan_image.width < 1100:
-        scale = min(2.4, 1100 / max(1, scan_image.width))
-        scan_image = scan_image.resize(
-            (max(1, int(scan_image.width * scale)), max(1, int(scan_image.height * scale))),
+    enhanced = _enhance_label_image(image)
+    if enhanced.width < 1100:
+        scale = min(2.4, 1100 / max(1, enhanced.width))
+        enhanced = enhanced.resize(
+            (max(1, int(enhanced.width * scale)), max(1, int(enhanced.height * scale))),
             Image.Resampling.LANCZOS,
         )
-        scan_image = ImageEnhance.Sharpness(scan_image).enhance(1.35)
-
-    return {
-        "original": _image_to_png_bytes(image),
-        "full_enhanced": _image_to_png_bytes(full_enhanced),
-        "scan": _image_to_png_bytes(scan_image),
-        "cropped": cropped,
-    }
-
-
-def _enhance_label_preview(image_bytes: bytes) -> bytes | None:
-    prepared = _prepare_label_scan(image_bytes)
-    return prepared["scan"] if prepared else None
+        enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.35)
+    return _image_to_png_bytes(enhanced)
 
 
 from elite_services import (
@@ -891,28 +766,13 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
             label_camera = st.camera_input("Photograph the Nutrition Facts panel", key="elite_label_camera")
             label_upload = st.file_uploader("Or upload a label photo", type=["jpg", "jpeg", "png", "webp"], key="elite_label_upload")
             source_file = label_camera or label_upload
-            prepared_label = None
             scan_bytes = None
             if source_file:
                 source_bytes = source_file.getvalue()
-                prepared_label = _prepare_label_scan(source_bytes)
-                auto_crop = st.checkbox("Auto-crop Nutrition Facts panel", value=True, key="elite_label_auto_crop")
-                if prepared_label:
-                    use_crop = bool(auto_crop and prepared_label["cropped"])
-                    scan_bytes = prepared_label["scan"] if use_crop else prepared_label["full_enhanced"]
-                    if use_crop:
-                        st.image(scan_bytes, caption="Auto-cropped and enhanced panel", width=520)
-                        st.success("Nutrition Facts panel detected. This cropped image will be scanned.")
-                    else:
-                        st.image(scan_bytes, caption="Enhanced full photo", width=520)
-                        if auto_crop:
-                            st.info("A confident panel crop was not found, so the full enhanced photo will be scanned.")
-                    with st.expander("View original photo"):
-                        st.image(prepared_label["original"], width=520)
-                else:
-                    scan_bytes = source_bytes
-                    st.image(source_bytes, caption="Photo preview", width=520)
-                    st.warning("The image could not be enhanced. The original photo will be scanned.")
+                scan_bytes = _enhance_label_preview(source_bytes) or source_bytes
+                st.image(scan_bytes, caption="Enhanced label photo", width=520)
+                with st.expander("View original photo"):
+                    st.image(source_bytes, width=520)
                 st.caption("Tip: Keep the Nutrition Facts panel close, upright, and well lit for the best scan result.")
             if st.button("Read nutrition label", type="primary", disabled=not bool(source_file)):
                 if not api_key:
@@ -920,7 +780,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                     st.session_state.elite_label_result = _blank_label_result()
                 else:
                     try:
-                        with st.spinner("Cropping and reading the label..."):
+                        with st.spinner("Reading the label..."):
                             st.session_state.elite_label_result = analyze_nutrition_label(scan_bytes or source_file.getvalue(), api_key)
                     except EliteServiceError as exc:
                         st.warning(f"Scan could not read the label cleanly. You can still edit the values manually. Details: {exc}")

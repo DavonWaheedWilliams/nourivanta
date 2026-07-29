@@ -3183,9 +3183,29 @@ def render_progress(user: User) -> None:
     if measurements:
         df = pd.DataFrame([{"Date": x.measurement_date, "Weight (lb)": x.weight_lb, "Body fat (%)": x.body_fat_pct, "Waist (in)": x.waist_in, "Chest (in)": x.chest_in, "Hips (in)": x.hips_in, "Arm (in)": x.arm_in, "Thigh (in)": x.thigh_in, "ID": x.id} for x in measurements])
         chart_choice = st.selectbox("Chart", ["Weight (lb)", "Body fat (%)", "Waist (in)", "Chest (in)", "Hips (in)"])
-        chart_df = df[["Date", chart_choice]].dropna().set_index("Date")
-        if not chart_df.empty:
-            st.line_chart(chart_df, width="stretch")
+        chart_period = st.radio(
+            "Chart period",
+            ["Weekly", "Monthly", "3 Months", "Yearly", "All Time"],
+            index=4,
+            horizontal=True,
+            key="progress_chart_period",
+        )
+        chart_source = df[["Date", chart_choice]].dropna().copy()
+        if not chart_source.empty:
+            chart_source["Date"] = pd.to_datetime(chart_source["Date"])
+            period_days = {"Weekly": 7, "Monthly": 30, "3 Months": 90, "Yearly": 365}
+            if chart_period in period_days:
+                period_end = chart_source["Date"].max().normalize()
+                period_start = period_end - pd.Timedelta(days=period_days[chart_period] - 1)
+                chart_source = chart_source[chart_source["Date"] >= period_start]
+                st.caption(f"Showing {chart_period.lower()} progress from {period_start.strftime('%m/%d/%Y')} through {period_end.strftime('%m/%d/%Y')}.")
+            else:
+                st.caption("Showing all saved measurements.")
+            chart_df = chart_source.set_index("Date")
+            if not chart_df.empty:
+                st.line_chart(chart_df, width="stretch")
+            else:
+                st.info("No measurements are available for this chart period.")
         st.dataframe(df.drop(columns=["ID"]), width="stretch", hide_index=True)
         delete_id = st.selectbox("Remove a measurement", [None] + list(reversed(df["ID"].tolist())), format_func=lambda value: "Select an entry" if value is None else f"Measurement #{value}")
         if st.button("Delete selected measurement", disabled=delete_id is None):
