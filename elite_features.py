@@ -501,6 +501,12 @@ def inject_elite_css() -> None:
         .nv-chip-elite { padding:.35rem .62rem; border-radius:999px; background:#F0EEFF; color:#5145CD; font-size:.78rem; font-weight:800; }
         .nv-gap-bar { height:12px; border-radius:999px; background:#E8EDF7; overflow:hidden; margin:.35rem 0 .75rem; }
         .nv-gap-bar span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#6D5DFB,#13C4D4); }
+        .nv-suggestion-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:.75rem; margin:.65rem 0 1rem; }
+        .nv-suggestion-card { background:rgba(255,255,255,.94); border:1px solid rgba(109,93,251,.16); border-radius:16px; padding:.9rem 1rem; box-shadow:0 8px 24px rgba(64,72,120,.07); min-height:112px; }
+        .nv-suggestion-name { font-size:1rem; font-weight:850; color:#151B2D; margin-bottom:.6rem; line-height:1.25; }
+        .nv-suggestion-meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.35rem .55rem; color:#5D687A; font-size:.82rem; line-height:1.3; }
+        .nv-suggestion-metric { background:rgba(109,93,251,.055); border-radius:9px; padding:.35rem .45rem; }
+        .nv-suggestion-metric strong { display:block; color:#273148; font-size:.88rem; }
         .nv-readiness-high { color:#16875D; }
         .nv-readiness-medium { color:#C97912; }
         .nv-readiness-low { color:#C23A4B; }
@@ -987,8 +993,30 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
         exclusions = [x.strip() for x in f"{pref.allergies},{pref.dislikes}".split(",") if x.strip()]
         suggestions = fuel_gap_suggestions(gaps["protein"], gaps["carbs"], gaps["fat"], gaps["calories"], exclusions)
         st.subheader("Practical next-food options")
+        suggestion_cards = []
         for item in suggestions:
-            st.write(f"**{item['name']}** · {item['calories']} kcal · {item['protein_g']} g protein · {item['carbs_g']} g carbs · {item['fat_g']} g fat")
+            name = html.escape(str(item.get("name") or "Food option"))
+            calories = _float(item.get("calories"))
+            protein = _float(item.get("protein_g"))
+            carbs = _float(item.get("carbs_g"))
+            fat = _float(item.get("fat_g"))
+            suggestion_cards.append(
+                "<div class='nv-suggestion-card'>"
+                f"<div class='nv-suggestion-name'>{name}</div>"
+                "<div class='nv-suggestion-meta'>"
+                f"<div class='nv-suggestion-metric'><strong>{calories:g}</strong>kcal</div>"
+                f"<div class='nv-suggestion-metric'><strong>{protein:g} g</strong>protein</div>"
+                f"<div class='nv-suggestion-metric'><strong>{carbs:g} g</strong>carbs</div>"
+                f"<div class='nv-suggestion-metric'><strong>{fat:g} g</strong>fat</div>"
+                "</div></div>"
+            )
+        if suggestion_cards:
+            st.markdown(
+                "<div class='nv-suggestion-grid'>" + "".join(suggestion_cards) + "</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("No matching food suggestions are available for the current fuel gaps.")
 
 
 def _body_part_lookup(exercise_name: str, library: dict[str, list[str]]) -> str:
