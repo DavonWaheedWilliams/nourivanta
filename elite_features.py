@@ -1232,42 +1232,242 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 )
 
                 if weighted_history:
-                    volume_by_date: dict[date, float] = {}
+                    weighted_by_date: dict[date, dict[str, Any]] = {}
                     for set_row in weighted_history:
                         workout_date = workout_by_id[set_row.session_id].workout_date
-                        volume_by_date[workout_date] = volume_by_date.get(workout_date, 0.0) + (set_row.weight_lb * set_row.reps)
-                    volume_df = pd.DataFrame(
-                        {"Weighted volume": list(volume_by_date.values())},
-                        index=pd.to_datetime(list(volume_by_date.keys())),
+                        day = weighted_by_date.setdefault(
+                            workout_date,
+                            {
+                                "sets": 0,
+                                "volume": 0.0,
+                                "best_weight": 0.0,
+                                "best_reps": 0,
+                                "best_e1rm": 0.0,
+                                "best_set": "",
+                            },
+                        )
+                        set_volume = float(set_row.weight_lb) * int(set_row.reps)
+                        set_e1rm = float(set_row.weight_lb) * (1 + int(set_row.reps) / 30)
+                        day["sets"] += 1
+                        day["volume"] += set_volume
+                        day["best_weight"] = max(float(day["best_weight"]), float(set_row.weight_lb))
+                        if set_e1rm >= float(day["best_e1rm"]):
+                            day["best_e1rm"] = set_e1rm
+                            day["best_reps"] = int(set_row.reps)
+                            day["best_set"] = f"{set_row.weight_lb:g} lb × {int(set_row.reps)} reps"
+
+                    weighted_rows = []
+                    for workout_date in sorted(weighted_by_date):
+                        day = weighted_by_date[workout_date]
+                        weighted_rows.append(
+                            {
+                                "Date": workout_date.strftime("%m/%d/%Y"),
+                                "Total volume": round(float(day["volume"]), 1),
+                                "Sets": int(day["sets"]),
+                                "Set label": f"{int(day['sets'])} set" + ("" if int(day["sets"]) == 1 else "s"),
+                                "Best weight": round(float(day["best_weight"]), 1),
+                                "Estimated 1RM": round(float(day["best_e1rm"]), 1),
+                                "Best set": str(day["best_set"]),
+                            }
+                        )
+                    weighted_df = pd.DataFrame(weighted_rows)
+                    weighted_dates = weighted_df["Date"].tolist()
+                    label_angle = -30 if len(weighted_dates) > 6 else 0
+
+                    st.caption("Total weighted volume by workout date. Each marker is one workout; hover to see volume, set count, and best set.")
+                    volume_layers: list[dict[str, Any]] = [
+                        {
+                            "mark": {"type": "line", "point": {"filled": True, "size": 95}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": weighted_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": label_angle},
+                                },
+                                "y": {
+                                    "field": "Total volume",
+                                    "type": "quantitative",
+                                    "title": "Volume (lb-reps)",
+                                    "scale": {"zero": True},
+                                },
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Total volume", "type": "quantitative", "title": "Total volume", "format": ",.0f"},
+                                    {"field": "Sets", "type": "quantitative", "title": "Sets"},
+                                    {"field": "Best set", "type": "nominal", "title": "Best set"},
+                                ],
+                            },
+                        }
+                    ]
+                    if len(weighted_dates) <= 12:
+                        volume_layers.append(
+                            {
+                                "mark": {"type": "text", "dy": -14, "fontSize": 12, "fontWeight": 700},
+                                "encoding": {
+                                    "x": {"field": "Date", "type": "ordinal", "sort": weighted_dates},
+                                    "y": {"field": "Total volume", "type": "quantitative"},
+                                    "text": {"field": "Set label", "type": "nominal"},
+                                },
+                            }
+                        )
+                    st.vega_lite_chart(
+                        weighted_df,
+                        {"height": 340, "layer": volume_layers},
+                        use_container_width=True,
                     )
-                    volume_df.index.name = "Workout date"
-                    st.caption("Weighted volume by workout date. Sets with zero weight or zero reps are excluded from this chart.")
-                    if len(volume_df.index) == 1:
-                        st.scatter_chart(volume_df, width="stretch", height=320)
-                        only_date = volume_df.index[0].strftime("%m/%d/%Y")
-                        only_value = float(volume_df.iloc[0, 0])
-                        st.caption(f"One weighted workout is recorded: {only_date} · {only_value:,.0f} lb-reps. Additional workout dates will connect into a trend line.")
-                    else:
-                        st.line_chart(volume_df, width="stretch", height=320)
+
+                    strength_rows = []
+                    for row in weighted_rows:
+                        strength_rows.extend(
+                            [
+                                {"Date": row["Date"], "Metric": "Best weight", "Value": row["Best weight"]},
+                                {"Date": row["Date"], "Metric": "Estimated 1RM", "Value": row["Estimated 1RM"]},
+                            ]
+                        )
+                    strength_df = pd.DataFrame(strength_rows)
+                    st.caption("Strength trend by workout date. Best weight shows the heaviest set; estimated 1RM adjusts for repetitions.")
+                    st.vega_lite_chart(
+                        strength_df,
+                        {
+                            "height": 300,
+                            "mark": {"type": "line", "point": {"filled": True, "size": 85}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": weighted_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": label_angle},
+                                },
+                                "y": {
+                                    "field": "Value",
+                                    "type": "quantitative",
+                                    "title": "Weight (lb)",
+                                    "scale": {"zero": True},
+                                },
+                                "color": {"field": "Metric", "type": "nominal", "title": None},
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Metric", "type": "nominal", "title": "Measure"},
+                                    {"field": "Value", "type": "quantitative", "title": "Weight", "format": ".0f"},
+                                ],
+                            },
+                        },
+                        use_container_width=True,
+                    )
+
+                    st.dataframe(
+                        weighted_df[["Date", "Sets", "Total volume", "Best set", "Estimated 1RM"]].rename(
+                            columns={"Estimated 1RM": "Est. 1RM (lb)", "Total volume": "Volume (lb-reps)"}
+                        ),
+                        width="stretch",
+                        hide_index=True,
+                    )
 
                 if reps_only_history:
-                    reps_by_date: dict[date, int] = {}
+                    reps_by_date: dict[date, dict[str, int]] = {}
                     for set_row in reps_only_history:
                         workout_date = workout_by_id[set_row.session_id].workout_date
-                        reps_by_date[workout_date] = reps_by_date.get(workout_date, 0) + int(set_row.reps)
-                    reps_df = pd.DataFrame(
-                        {"Reps-only volume": list(reps_by_date.values())},
-                        index=pd.to_datetime(list(reps_by_date.keys())),
+                        day = reps_by_date.setdefault(workout_date, {"sets": 0, "total_reps": 0, "best_reps": 0})
+                        day["sets"] += 1
+                        day["total_reps"] += int(set_row.reps)
+                        day["best_reps"] = max(int(day["best_reps"]), int(set_row.reps))
+
+                    reps_rows = []
+                    for workout_date in sorted(reps_by_date):
+                        day = reps_by_date[workout_date]
+                        reps_rows.append(
+                            {
+                                "Date": workout_date.strftime("%m/%d/%Y"),
+                                "Total reps": int(day["total_reps"]),
+                                "Sets": int(day["sets"]),
+                                "Best set reps": int(day["best_reps"]),
+                                "Set label": f"{int(day['sets'])} set" + ("" if int(day["sets"]) == 1 else "s"),
+                            }
+                        )
+                    reps_df = pd.DataFrame(reps_rows)
+                    reps_dates = reps_df["Date"].tolist()
+                    reps_label_angle = -30 if len(reps_dates) > 6 else 0
+
+                    st.caption("Reps-only volume by workout date for bodyweight or zero-external-weight sets. Each marker is one workout.")
+                    reps_layers: list[dict[str, Any]] = [
+                        {
+                            "mark": {"type": "line", "point": {"filled": True, "size": 95}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": reps_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": reps_label_angle},
+                                },
+                                "y": {
+                                    "field": "Total reps",
+                                    "type": "quantitative",
+                                    "title": "Total repetitions",
+                                    "scale": {"zero": True},
+                                },
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Total reps", "type": "quantitative", "title": "Total reps"},
+                                    {"field": "Sets", "type": "quantitative", "title": "Sets"},
+                                    {"field": "Best set reps", "type": "quantitative", "title": "Best set reps"},
+                                ],
+                            },
+                        }
+                    ]
+                    if len(reps_dates) <= 12:
+                        reps_layers.append(
+                            {
+                                "mark": {"type": "text", "dy": -14, "fontSize": 12, "fontWeight": 700},
+                                "encoding": {
+                                    "x": {"field": "Date", "type": "ordinal", "sort": reps_dates},
+                                    "y": {"field": "Total reps", "type": "quantitative"},
+                                    "text": {"field": "Set label", "type": "nominal"},
+                                },
+                            }
+                        )
+                    st.vega_lite_chart(
+                        reps_df,
+                        {"height": 320, "layer": reps_layers},
+                        use_container_width=True,
                     )
-                    reps_df.index.name = "Workout date"
-                    st.caption("Reps-only progression by workout date for sets saved without external weight.")
-                    if len(reps_df.index) == 1:
-                        st.scatter_chart(reps_df, width="stretch", height=320)
-                        only_date = reps_df.index[0].strftime("%m/%d/%Y")
-                        only_value = int(reps_df.iloc[0, 0])
-                        st.caption(f"One reps-only workout is recorded: {only_date} · {only_value:,} total reps. Additional workout dates will connect into a trend line.")
-                    else:
-                        st.line_chart(reps_df, width="stretch", height=320)
+
+                    st.caption("Best repetitions completed in a single set on each workout date.")
+                    st.vega_lite_chart(
+                        reps_df,
+                        {
+                            "height": 280,
+                            "mark": {"type": "line", "point": {"filled": True, "size": 85}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": reps_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": reps_label_angle},
+                                },
+                                "y": {
+                                    "field": "Best set reps",
+                                    "type": "quantitative",
+                                    "title": "Best set repetitions",
+                                    "scale": {"zero": True},
+                                },
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Best set reps", "type": "quantitative", "title": "Best set reps"},
+                                ],
+                            },
+                        },
+                        use_container_width=True,
+                    )
+                    st.dataframe(
+                        reps_df[["Date", "Sets", "Total reps", "Best set reps"]],
+                        width="stretch",
+                        hide_index=True,
+                    )
 
                 if not weighted_history and not reps_only_history:
                     st.info("Add repetitions or weight to completed sets to generate a progression chart.")
