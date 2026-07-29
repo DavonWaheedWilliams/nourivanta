@@ -12,9 +12,11 @@ from urllib.parse import quote_plus
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -68,6 +70,187 @@ def utc_naive_to_local(value: datetime) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=ZoneInfo("UTC"))
     return value.astimezone(ZoneInfo(active_timezone_name()))
+
+
+def _blank_label_result() -> dict[str, Any]:
+    return {
+        "product_name": "",
+        "serving_size": "1 serving",
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+    }
+
+
+def _image_to_png_bytes(image: Image.Image) -> bytes:
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def _load_label_image(image_bytes: bytes) -> Image.Image | None:
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image = ImageOps.exif_transpose(image).convert("RGB")
+    except Exception:
+        return None
+
+    max_dimension = max(image.size)
+    if max_dimension > 2200:
+        scale = 2200 / max_dimension
+        image = image.resize(
+            (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+    return image
+
+
+def _enhance_label_image(image: Image.Image) -> Image.Image:
+    enhanced = ImageOps.autocontrast(image, cutoff=1)
+    enhanced = ImageEnhance.Contrast(enhanced).enhance(1.28)
+    enhanced = ImageEnhance.Sharpness(enhanced).enhance(2.5)
+    return enhanced
+
+
+def _summed_area_table(values: np.ndarray) -> np.ndarray:
+    return np.pad(values, ((1, 0), (1, 0)), mode="constant").cumsum(0).cumsum(1)
+
+
+def _rectangle_sum(table: np.ndarray, left: int, top: int, right: int, bottom: int) -> float:
+    return float(table[bottom, right] - table[top, right] - table[bottom, left] + table[top, left])
+
+
+def _find_label_panel_box(image: Image.Image) -> tuple[int, int, int, int] | None:
+    """Find a likely Nutrition Facts panel using text and edge density.
+
+    This is intentionally dependency-light so the existing deployment does not
+    need OpenCV. When confidence is low, the caller keeps the full image.
+    """
+    work = image.copy()
+    max_dimension = max(work.size)
+    if max_dimension > 900:
+        scale = 900 / max_dimension
+        work = work.resize(
+            (max(1, int(work.width * scale)), max(1, int(work.height * scale))),
+            Image.Resampling.BILINEAR,
+        )
+    else:
+        scale = 1.0
+
+    gray_image = ImageOps.autocontrast(ImageOps.grayscale(work), cutoff=1)
+    gray = np.asarray(gray_image, dtype=np.float32)
+    height, width = gray.shape
+    if min(height, width) < 120:
+        return None
+
+    # Dense horizontal and vertical strokes are characteristic of a nutrition panel.
+    grad_x = np.zeros_like(gray)
+    grad_y = np.zeros_like(gray)
+    grad_x[:, 1:] = np.abs(gray[:, 1:] - gray[:, :-1])
+    grad_y[1:, :] = np.abs(gray[1:, :] - gray[:-1, :])
+    edge = np.clip((grad_x + grad_y) / 95.0, 0.0, 1.0)
+    dark_text = np.clip((185.0 - gray) / 185.0, 0.0, 1.0)
+    feature = 0.78 * edge + 0.22 * dark_text
+
+    # A light blur makes the sliding-window score prefer a full text block over isolated clutter.
+    feature_image = Image.fromarray(np.uint8(np.clip(feature * 255.0, 0, 255)))
+    feature = np.asarray(feature_image.filter(ImageFilter.BoxBlur(max(1, min(width, height) // 180))), dtype=np.float32) / 255.0
+    table = _summed_area_table(feature)
+
+    global_mean = float(feature.mean()) + 1e-6
+    best_score = -1.0
+    best_box: tuple[int, int, int, int] | None = None
+
+    width_fractions = (0.28, 0.36, 0.45, 0.55, 0.66, 0.78)
+    height_fractions = (0.38, 0.50, 0.62, 0.76, 0.90)
+    for width_fraction in width_fractions:
+        window_width = max(80, int(width * width_fraction))
+        if window_width >= width:
+            continue
+        for height_fraction in height_fractions:
+            window_height = max(110, int(height * height_fraction))
+            if window_height >= height:
+                continue
+            aspect = window_height / max(1, window_width)
+            if not 0.65 <= aspect <= 3.4:
+                continue
+
+            step_x = max(10, window_width // 9)
+            step_y = max(10, window_height // 10)
+            area = window_width * window_height
+            area_fraction = area / float(width * height)
+
+            for top in range(0, height - window_height + 1, step_y):
+                bottom = top + window_height
+                for left in range(0, width - window_width + 1, step_x):
+                    right = left + window_width
+                    mean_feature = _rectangle_sum(table, left, top, right, bottom) / area
+                    region = gray[top:bottom:4, left:right:4]
+                    contrast = min(1.4, float(region.std()) / 62.0)
+                    light_ratio = float(np.mean(region > 150.0))
+                    dark_ratio = float(np.mean(region < 105.0))
+                    text_balance = min(1.0, (light_ratio + dark_ratio) * 1.25)
+                    size_bonus = 0.82 + 0.30 * min(1.0, area_fraction / 0.34)
+                    score = (mean_feature / global_mean) * (0.78 + 0.18 * contrast + 0.10 * text_balance) * size_bonus
+                    if score > best_score:
+                        best_score = score
+                        best_box = (left, top, right, bottom)
+
+    if best_box is None or best_score < 1.18:
+        return None
+
+    left, top, right, bottom = best_box
+    padding_x = int((right - left) * 0.07)
+    padding_y = int((bottom - top) * 0.06)
+    left = max(0, left - padding_x)
+    top = max(0, top - padding_y)
+    right = min(width, right + padding_x)
+    bottom = min(height, bottom + padding_y)
+
+    inverse_scale = 1.0 / scale
+    return (
+        int(left * inverse_scale),
+        int(top * inverse_scale),
+        min(image.width, int(right * inverse_scale)),
+        min(image.height, int(bottom * inverse_scale)),
+    )
+
+
+def _prepare_label_scan(image_bytes: bytes) -> dict[str, Any] | None:
+    image = _load_label_image(image_bytes)
+    if image is None:
+        return None
+
+    full_enhanced = _enhance_label_image(image)
+    panel_box = _find_label_panel_box(full_enhanced)
+    cropped = False
+    scan_image = full_enhanced
+    if panel_box:
+        candidate = full_enhanced.crop(panel_box)
+        if candidate.width >= 120 and candidate.height >= 160:
+            scan_image = _enhance_label_image(candidate)
+            cropped = True
+
+    if scan_image.width < 1100:
+        scale = min(2.4, 1100 / max(1, scan_image.width))
+        scan_image = scan_image.resize(
+            (max(1, int(scan_image.width * scale)), max(1, int(scan_image.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        scan_image = ImageEnhance.Sharpness(scan_image).enhance(1.35)
+
+    return {
+        "original": _image_to_png_bytes(image),
+        "full_enhanced": _image_to_png_bytes(full_enhanced),
+        "scan": _image_to_png_bytes(scan_image),
+        "cropped": cropped,
+    }
+
+
+def _enhance_label_preview(image_bytes: bytes) -> bytes | None:
+    prepared = _prepare_label_scan(image_bytes)
+    return prepared["scan"] if prepared else None
 
 
 from elite_services import (
@@ -148,18 +331,6 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         unit: Mapped[str] = mapped_column(String(40), default="item")
         category: Mapped[str] = mapped_column(String(60), default="Pantry")
         expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-        created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
-
-    class GroceryListItem(Base):
-        __tablename__ = "grocery_list_items"
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-        ingredient: Mapped[str] = mapped_column(String(180))
-        quantity: Mapped[float] = mapped_column(Float, default=1)
-        unit: Mapped[str] = mapped_column(String(50), default="item")
-        planned_uses: Mapped[int] = mapped_column(Integer, default=1)
-        purchased: Mapped[bool] = mapped_column(Boolean, default=False)
-        notes: Mapped[str] = mapped_column(Text, default="")
         created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     class WorkoutProgram(Base):
@@ -259,7 +430,7 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         recovery_code_hash: Mapped[str] = mapped_column(String(255), default="")
         failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
         locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-        session_timeout_min: Mapped[int] = mapped_column(Integer, default=1440)
+        session_timeout_min: Mapped[int] = mapped_column(Integer, default=90)
         plan_tier: Mapped[str] = mapped_column(String(30), default="Core")
         created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -278,7 +449,6 @@ def install_elite_models(Base: Any) -> SimpleNamespace:
         SavedMealItem=SavedMealItem,
         MealPlanEntry=MealPlanEntry,
         PantryItem=PantryItem,
-        GroceryListItem=GroceryListItem,
         WorkoutProgram=WorkoutProgram,
         WorkoutProgramExercise=WorkoutProgramExercise,
         CoachReport=CoachReport,
@@ -416,19 +586,11 @@ def register_login_result(
 
 
 def session_timeout_minutes(SessionLocal: Any, models: SimpleNamespace, user_id: int) -> int:
-    """Return the inactivity timeout in minutes.
-
-    Accounts that still have the former 90-minute default are upgraded to a
-    24-hour inactivity window. The user can choose up to seven days.
-    """
     with SessionLocal() as session:
         profile = _get_security(session, models, user_id)
-        value = int(profile.session_timeout_min or 1440)
-        if value == 90:
-            value = 1440
-            profile.session_timeout_min = value
+        value = int(profile.session_timeout_min or 90)
         session.commit()
-    return max(60, min(value, 10080))
+    return max(15, min(value, 720))
 
 
 def inject_elite_css() -> None:
@@ -449,15 +611,11 @@ def inject_elite_css() -> None:
         .nv-chip-elite { padding:.35rem .62rem; border-radius:999px; background:#F0EEFF; color:#5145CD; font-size:.78rem; font-weight:800; }
         .nv-gap-bar { height:12px; border-radius:999px; background:#E8EDF7; overflow:hidden; margin:.35rem 0 .75rem; }
         .nv-gap-bar span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#6D5DFB,#13C4D4); }
-        .nv-suggestion-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; margin:.7rem 0 1rem; }
-        .nv-suggestion-card { background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(244,250,255,.94)); border:1px solid rgba(19,196,212,.20); border-radius:16px; padding:.9rem 1rem; box-shadow:0 8px 24px rgba(64,72,120,.07); }
-        .nv-suggestion-name { font-size:1rem; font-weight:900; color:#172033; margin-bottom:.35rem; }
-        .nv-suggestion-meta { color:#66738A; line-height:1.55; font-size:.9rem; }
         .nv-readiness-high { color:#16875D; }
         .nv-readiness-medium { color:#C97912; }
         .nv-readiness-low { color:#C23A4B; }
         @media(max-width:900px){ .nv-elite-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
-        @media(max-width:600px){ .nv-elite-grid,.nv-suggestion-grid{grid-template-columns:1fr;} }
+        @media(max-width:600px){ .nv-elite-grid{grid-template-columns:1fr;} }
         </style>
         """,
         unsafe_allow_html=True,
@@ -646,13 +804,6 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
     models = ctx["models"]
     SessionLocal = ctx["SessionLocal"]
     FoodLog = ctx["FoodLog"]
-    hero = ctx.get("hero")
-    if hero:
-        hero(
-            "Nutrition Insights",
-            "Turn your food data into better decisions",
-            "Search verified foods, review labels, reuse saved meals, and forecast your remaining fuel needs.",
-        )
     search_tab, label_tab, favorites_tab, meals_tab, forecast_tab = st.tabs(["Verified search", "Nutrition label", "Favorites and recent", "Saved meals and copy", "Macro Forecast"])
 
     with search_tab:
@@ -717,31 +868,70 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
     with label_tab:
         st.subheader("Nutrition-label photo scan")
         c1, c2 = st.columns(2)
+        label_camera = None
+        label_upload = None
+        api_key = st.session_state.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
+        source_file = None
         with c1:
             label_camera = st.camera_input("Photograph the Nutrition Facts panel", key="elite_label_camera")
             label_upload = st.file_uploader("Or upload a label photo", type=["jpg", "jpeg", "png", "webp"], key="elite_label_upload")
-            api_key = st.session_state.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
-            if st.button("Read nutrition label", type="primary", disabled=not bool((label_camera or label_upload) and api_key)):
-                try:
-                    with st.spinner("Reading the label..."):
-                        source_file = label_camera or label_upload
-                        st.session_state.elite_label_result = analyze_nutrition_label(source_file.getvalue(), api_key)
-                except EliteServiceError as exc:
-                    st.error(str(exc))
+            source_file = label_camera or label_upload
+            prepared_label = None
+            scan_bytes = None
+            if source_file:
+                source_bytes = source_file.getvalue()
+                prepared_label = _prepare_label_scan(source_bytes)
+                auto_crop = st.checkbox("Auto-crop Nutrition Facts panel", value=True, key="elite_label_auto_crop")
+                if prepared_label:
+                    use_crop = bool(auto_crop and prepared_label["cropped"])
+                    scan_bytes = prepared_label["scan"] if use_crop else prepared_label["full_enhanced"]
+                    if use_crop:
+                        st.image(scan_bytes, caption="Auto-cropped and enhanced panel", width=520)
+                        st.success("Nutrition Facts panel detected. This cropped image will be scanned.")
+                    else:
+                        st.image(scan_bytes, caption="Enhanced full photo", width=520)
+                        if auto_crop:
+                            st.info("A confident panel crop was not found, so the full enhanced photo will be scanned.")
+                    with st.expander("View original photo"):
+                        st.image(prepared_label["original"], width=520)
+                else:
+                    scan_bytes = source_bytes
+                    st.image(source_bytes, caption="Photo preview", width=520)
+                    st.warning("The image could not be enhanced. The original photo will be scanned.")
+                st.caption("Tip: Keep the Nutrition Facts panel close, upright, and well lit for the best scan result.")
+            if st.button("Read nutrition label", type="primary", disabled=not bool(source_file)):
+                if not api_key:
+                    st.warning("No scan key found. You can still use the editable form on the right and enter the label manually.")
+                    st.session_state.elite_label_result = _blank_label_result()
+                else:
+                    try:
+                        with st.spinner("Cropping and reading the label..."):
+                            st.session_state.elite_label_result = analyze_nutrition_label(scan_bytes or source_file.getvalue(), api_key)
+                    except EliteServiceError as exc:
+                        st.warning(f"Scan could not read the label cleanly. You can still edit the values manually. Details: {exc}")
+                        st.session_state.elite_label_result = _blank_label_result()
+                    except Exception:
+                        st.warning("Scan could not read the label cleanly. You can still edit the values manually.")
+                        st.session_state.elite_label_result = _blank_label_result()
         with c2:
-            label_result = st.session_state.get("elite_label_result")
-            if label_result:
+            label_result = st.session_state.get("elite_label_result") or {}
+            show_editor = bool(label_result or source_file)
+            if show_editor:
+                base_result = _blank_label_result()
+                base_result.update(label_result)
                 with st.form("elite_label_save"):
+                    st.caption("Review the result below. You can type over any field before saving.")
                     label_date = st.date_input("Diary date", value=local_today(), format="MM/DD/YYYY", key="elite_label_date")
                     label_meal = st.selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack"], key="elite_label_meal")
-                    product_name = st.text_input("Product", value=str(label_result.get("product_name") or "Label-scanned food"))
-                    serving = st.text_input("Serving", value=str(label_result.get("serving_size") or "1 serving"))
+                    product_name = st.text_input("Product", value=str(base_result.get("product_name") or "Label-scanned food"))
+                    serving = st.text_input("Serving", value=str(base_result.get("serving_size") or "1 serving"))
                     servings = st.number_input("Servings eaten", min_value=0.1, max_value=20.0, value=1.0, step=0.1)
-                    c3, c4, c5, c6 = st.columns(4)
-                    calories = c3.number_input("Calories", min_value=0.0, value=_float(label_result.get("calories")))
-                    protein = c4.number_input("Protein", min_value=0.0, value=_float(label_result.get("protein_g")))
-                    carbs = c5.number_input("Carbs", min_value=0.0, value=_float(label_result.get("carbs_g")))
-                    fat = c6.number_input("Fat", min_value=0.0, value=_float(label_result.get("fat_g")))
+                    c3, c4 = st.columns(2)
+                    c5, c6 = st.columns(2)
+                    calories = c3.number_input("Calories", min_value=0.0, value=_float(base_result.get("calories")))
+                    protein = c4.number_input("Protein", min_value=0.0, value=_float(base_result.get("protein_g")))
+                    carbs = c5.number_input("Carbs", min_value=0.0, value=_float(base_result.get("carbs_g")))
+                    fat = c6.number_input("Fat", min_value=0.0, value=_float(base_result.get("fat_g")))
                     save_label = st.form_submit_button("Save label food", type="primary", width="stretch")
                 if save_label:
                     _save_food_log(ctx, user.id, label_date, label_meal, {
@@ -750,7 +940,7 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                     }, servings, notes="Nutrition label photo reviewed by user")
                     st.success("Nutrition-label food logged.")
             else:
-                st.info("The editable label result will appear here.")
+                st.info("Take or upload a label photo. An editable result panel will appear here, even if you need to enter the values manually.")
 
     with favorites_tab:
         with SessionLocal() as session:
@@ -924,21 +1114,8 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
         exclusions = [x.strip() for x in f"{pref.allergies},{pref.dislikes}".split(",") if x.strip()]
         suggestions = fuel_gap_suggestions(gaps["protein"], gaps["carbs"], gaps["fat"], gaps["calories"], exclusions)
         st.subheader("Practical next-food options")
-        suggestion_cards = "".join(
-            (
-                '<div class="nv-suggestion-card">'
-                f'<div class="nv-suggestion-name">{_esc(item["name"])}</div>'
-                '<div class="nv-suggestion-meta">'
-                f'{item["calories"]} kcal · {item["protein_g"]} g protein<br>'
-                f'{item["carbs_g"]} g carbs · {item["fat_g"]} g fat'
-                '</div></div>'
-            )
-            for item in suggestions
-        )
-        st.markdown(
-            '<div class="nv-suggestion-grid">' + suggestion_cards + '</div>',
-            unsafe_allow_html=True,
-        )
+        for item in suggestions:
+            st.write(f"**{item['name']}** · {item['calories']} kcal · {item['protein_g']} g protein · {item['carbs_g']} g carbs · {item['fat_g']} g fat")
 
 
 def _body_part_lookup(exercise_name: str, library: dict[str, list[str]]) -> str:
@@ -984,43 +1161,6 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             programs = session.scalars(select(models.WorkoutProgram).where(models.WorkoutProgram.user_id == user.id).order_by(models.WorkoutProgram.created_at.desc())).all()
         if programs:
             program = st.selectbox("Program", programs, format_func=lambda x: f"{x.name} · {x.goal}")
-
-            with st.expander("Manage selected program"):
-                st.caption(
-                    f"Delete {program.name} and all exercises saved inside it. "
-                    "Workout sessions already created from this program will remain in your workout history."
-                )
-                confirm_program_delete = st.checkbox(
-                    f"I understand that {program.name} will be permanently deleted.",
-                    key=f"confirm_program_delete_{program.id}",
-                )
-                if st.button(
-                    "Delete selected program",
-                    key=f"delete_program_{program.id}",
-                    type="primary",
-                    width="stretch",
-                    disabled=not confirm_program_delete,
-                ):
-                    with SessionLocal() as session:
-                        owned_program = session.scalar(
-                            select(models.WorkoutProgram).where(
-                                models.WorkoutProgram.id == program.id,
-                                models.WorkoutProgram.user_id == user.id,
-                            )
-                        )
-                        if owned_program:
-                            session.execute(
-                                delete(models.WorkoutProgramExercise).where(
-                                    models.WorkoutProgramExercise.program_id == owned_program.id
-                                )
-                            )
-                            session.delete(owned_program)
-                            session.commit()
-                            st.success("Program deleted.")
-                        else:
-                            st.error("The selected program was not found.")
-                    st.rerun()
-
             st.subheader("Add program exercise")
             c1, c2 = st.columns(2)
             day_name = c1.text_input("Training day", value="Day 1")
@@ -1038,54 +1178,28 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             superset = c6.text_input("Superset or circuit group", placeholder="A, B, Circuit 1")
             set_style = c7.selectbox("Set style", ["Standard", "Warm-up", "Drop set", "AMRAP", "Tempo", "Circuit"])
             if st.button("Add exercise to program", type="primary"):
-                clean_exercise_name = exercise_name.strip()
-                clean_day_name = day_name.strip() or "Day 1"
-                if not clean_exercise_name:
+                if not exercise_name.strip():
                     st.error("Enter an exercise name.")
                 else:
                     with SessionLocal() as session:
-                        existing_exercises = session.scalars(
-                            select(models.WorkoutProgramExercise).where(
-                                models.WorkoutProgramExercise.program_id == program.id,
-                                models.WorkoutProgramExercise.day_name == clean_day_name,
-                            )
-                        ).all()
-                        duplicate = next(
-                            (
-                                item
-                                for item in existing_exercises
-                                if item.exercise_name.strip().casefold() == clean_exercise_name.casefold()
-                            ),
-                            None,
-                        )
-                        if duplicate:
-                            st.warning(
-                                f"{clean_exercise_name} is already listed for {clean_day_name}. "
-                                "Delete the existing entry before adding a replacement."
-                            )
-                        else:
-                            count = session.scalar(
-                                select(func.count(models.WorkoutProgramExercise.id)).where(
-                                    models.WorkoutProgramExercise.program_id == program.id
-                                )
-                            ) or 0
-                            session.add(models.WorkoutProgramExercise(
-                                program_id=program.id,
-                                day_name=clean_day_name,
-                                order_index=count + 1,
-                                body_part=body_part,
-                                exercise_name=clean_exercise_name,
-                                sets=int(sets),
-                                reps_min=int(reps_min),
-                                reps_max=max(int(reps_min), int(reps_max)),
-                                target_weight_lb=float(target_weight),
-                                rest_seconds=int(rest),
-                                superset_group=superset.strip(),
-                                set_style=set_style,
-                            ))
-                            session.commit()
-                            st.success("Exercise added.")
-                            st.rerun()
+                        count = session.scalar(select(func.count(models.WorkoutProgramExercise.id)).where(models.WorkoutProgramExercise.program_id == program.id)) or 0
+                        session.add(models.WorkoutProgramExercise(
+                            program_id=program.id,
+                            day_name=day_name.strip() or "Day 1",
+                            order_index=count + 1,
+                            body_part=body_part,
+                            exercise_name=exercise_name.strip(),
+                            sets=int(sets),
+                            reps_min=int(reps_min),
+                            reps_max=max(int(reps_min), int(reps_max)),
+                            target_weight_lb=float(target_weight),
+                            rest_seconds=int(rest),
+                            superset_group=superset.strip(),
+                            set_style=set_style,
+                        ))
+                        session.commit()
+                    st.success("Exercise added.")
+                    st.rerun()
             with SessionLocal() as session:
                 planned = session.scalars(select(models.WorkoutProgramExercise).where(models.WorkoutProgramExercise.program_id == program.id).order_by(models.WorkoutProgramExercise.day_name, models.WorkoutProgramExercise.order_index)).all()
             if planned:
@@ -1100,97 +1214,35 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     "Group": x.superset_group,
                     "Set style": x.set_style,
                 } for x in planned]), width="stretch", hide_index=True)
-
-                st.markdown("#### Delete a program exercise")
-                exercise_to_delete = st.selectbox(
-                    "Choose an exercise to delete",
-                    planned,
-                    format_func=lambda x: (
-                        f"{x.day_name} · {x.exercise_name} · "
-                        f"{x.sets} sets × {x.reps_min}-{x.reps_max} reps"
-                    ),
-                    key=f"program_exercise_delete_select_{program.id}",
-                )
-                if st.button(
-                    "Delete selected exercise",
-                    key=f"program_exercise_delete_button_{program.id}",
-                    width="stretch",
-                ):
-                    with SessionLocal() as session:
-                        owned_exercise = session.scalar(
-                            select(models.WorkoutProgramExercise)
-                            .join(
-                                models.WorkoutProgram,
-                                models.WorkoutProgramExercise.program_id == models.WorkoutProgram.id,
-                            )
-                            .where(
-                                models.WorkoutProgramExercise.id == exercise_to_delete.id,
-                                models.WorkoutProgram.user_id == user.id,
-                            )
-                        )
-                        if owned_exercise:
-                            session.delete(owned_exercise)
-                            session.flush()
-                            remaining = session.scalars(
-                                select(models.WorkoutProgramExercise)
-                                .where(models.WorkoutProgramExercise.program_id == program.id)
-                                .order_by(
-                                    models.WorkoutProgramExercise.day_name,
-                                    models.WorkoutProgramExercise.order_index,
-                                    models.WorkoutProgramExercise.id,
-                                )
-                            ).all()
-                            for new_index, item in enumerate(remaining, start=1):
-                                item.order_index = new_index
-                            session.commit()
-                    st.success("Program exercise deleted.")
-                    st.rerun()
-
                 days = sorted({x.day_name for x in planned})
                 log_day = st.selectbox("Program day to start", days)
-                day_exercises = [x for x in planned if x.day_name == log_day]
-                estimated_minutes = max(
-                    15,
-                    int(round(sum(ex.sets * (45 + max(ex.rest_seconds, 0)) for ex in day_exercises) / 60 + 5)),
-                )
                 workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY", key="program_workout_date")
-                planned_duration = st.number_input(
-                    "Planned workout duration (minutes)",
-                    min_value=1,
-                    max_value=600,
-                    value=estimated_minutes,
-                    key=f"program_duration_{program.id}_{log_day}",
-                    help="This estimate is based on the planned sets and rest periods. Adjust it before creating the session.",
-                )
                 if st.button("Create workout session from this program day", type="primary", width="stretch"):
+                    day_exercises = [x for x in planned if x.day_name == log_day]
                     with SessionLocal() as session:
                         workout = WorkoutSession(
                             user_id=user.id,
                             workout_date=workout_date,
                             workout_name=f"{program.name} · {log_day}",
                             category=program.goal,
-                            duration_min=int(planned_duration),
+                            duration_min=0,
                             calories_burned=0,
-                            notes="Created from NouriVanta Program Builder",
+                            notes="Created from Elite Program Builder",
                         )
                         session.add(workout)
                         session.flush()
-                        exercise_set_counters: dict[str, int] = {}
                         for ex in day_exercises:
-                            exercise_key = ex.exercise_name.strip().casefold()
-                            for _ in range(ex.sets):
-                                exercise_set_counters[exercise_key] = exercise_set_counters.get(exercise_key, 0) + 1
+                            for set_number in range(1, ex.sets + 1):
                                 session.add(ExerciseSet(
                                     session_id=workout.id,
                                     exercise_name=ex.exercise_name,
-                                    set_number=exercise_set_counters[exercise_key],
+                                    set_number=set_number,
                                     reps=ex.reps_min,
                                     weight_lb=ex.target_weight_lb,
                                     completed=False,
                                 ))
                         session.commit()
-                    st.session_state["dashboard_date"] = workout_date
-                    st.success(f"Workout session created with planned sets and {int(planned_duration)} planned minute(s).")
+                    st.success("Workout session created with planned sets.")
 
         st.subheader("Rest timer")
         timer_seconds = st.number_input("Rest duration in seconds", min_value=10, max_value=600, value=90, step=5, key="elite_rest_seconds")
@@ -1470,154 +1522,13 @@ def _render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
                 key = str(ingredient).strip()
                 if key and key.lower() not in pantry_names:
                     grocery[key] = grocery.get(key, 0) + 1
-        st.subheader("Adjustable grocery list")
-        with SessionLocal() as session:
-            saved_grocery = session.scalars(
-                select(models.GroceryListItem)
-                .where(models.GroceryListItem.user_id == user.id)
-                .order_by(models.GroceryListItem.purchased, models.GroceryListItem.ingredient)
-            ).all()
-
-        automatic_rows = [
-            {
-                "Purchased": False,
-                "Ingredient": key,
-                "Quantity": float(count),
-                "Unit": "planned use",
-                "Planned uses": int(count),
-                "Notes": "",
-            }
-            for key, count in sorted(grocery.items())
-        ]
-        saved_rows = [
-            {
-                "Purchased": bool(item.purchased),
-                "Ingredient": item.ingredient,
-                "Quantity": float(item.quantity),
-                "Unit": item.unit,
-                "Planned uses": int(item.planned_uses),
-                "Notes": item.notes,
-            }
-            for item in saved_grocery
-        ]
-
-        action_left, action_right = st.columns(2)
-        with action_left:
-            sync_automatic = st.button(
-                "Add missing meal-plan items",
-                width="stretch",
-                disabled=not bool(automatic_rows),
-                help="Adds ingredients from the next seven days without replacing your adjustments.",
-            )
-        with action_right:
-            reset_automatic = st.button(
-                "Reset list from meal plan",
-                width="stretch",
-                disabled=not bool(automatic_rows),
-                help="Replaces the saved grocery list with the current automatic list.",
-            )
-
-        if sync_automatic:
-            with SessionLocal() as session:
-                existing = session.scalars(
-                    select(models.GroceryListItem).where(models.GroceryListItem.user_id == user.id)
-                ).all()
-                existing_names = {item.ingredient.strip().lower() for item in existing}
-                for row in automatic_rows:
-                    if row["Ingredient"].strip().lower() not in existing_names:
-                        session.add(models.GroceryListItem(
-                            user_id=user.id,
-                            ingredient=row["Ingredient"],
-                            quantity=row["Quantity"],
-                            unit=row["Unit"],
-                            planned_uses=row["Planned uses"],
-                        ))
-                session.commit()
-            st.session_state.pop("editable_grocery_list", None)
-            st.rerun()
-
-        if reset_automatic:
-            with SessionLocal() as session:
-                session.execute(delete(models.GroceryListItem).where(models.GroceryListItem.user_id == user.id))
-                for row in automatic_rows:
-                    session.add(models.GroceryListItem(
-                        user_id=user.id,
-                        ingredient=row["Ingredient"],
-                        quantity=row["Quantity"],
-                        unit=row["Unit"],
-                        planned_uses=row["Planned uses"],
-                    ))
-                session.commit()
-            st.session_state.pop("editable_grocery_list", None)
-            st.rerun()
-
-        editor_rows = saved_rows if saved_rows else automatic_rows
-        if not editor_rows:
-            editor_rows = [{
-                "Purchased": False,
-                "Ingredient": "",
-                "Quantity": 1.0,
-                "Unit": "item",
-                "Planned uses": 1,
-                "Notes": "",
-            }]
-            st.info("Generate a meal plan or add grocery items directly below.")
-
-        grocery_editor = st.data_editor(
-            pd.DataFrame(editor_rows),
-            width="stretch",
-            hide_index=True,
-            num_rows="dynamic",
-            key="editable_grocery_list",
-            column_config={
-                "Purchased": st.column_config.CheckboxColumn("Purchased"),
-                "Ingredient": st.column_config.TextColumn("Ingredient", required=True),
-                "Quantity": st.column_config.NumberColumn("Quantity", min_value=0.0, step=0.5, format="%.1f"),
-                "Unit": st.column_config.TextColumn("Unit"),
-                "Planned uses": st.column_config.NumberColumn("Planned uses", min_value=0, step=1, format="%d"),
-                "Notes": st.column_config.TextColumn("Notes"),
-            },
-        )
-
-        save_col, remove_col = st.columns(2)
-        with save_col:
-            save_grocery = st.button("Save grocery adjustments", type="primary", width="stretch")
-        with remove_col:
-            remove_purchased = st.button("Remove purchased items", width="stretch")
-
-        if save_grocery or remove_purchased:
-            clean_rows = []
-            for row in grocery_editor.to_dict("records"):
-                ingredient = str(row.get("Ingredient") or "").strip()
-                if not ingredient:
-                    continue
-                purchased = bool(row.get("Purchased", False))
-                if remove_purchased and purchased:
-                    continue
-                clean_rows.append({
-                    "ingredient": ingredient,
-                    "quantity": max(0.0, _float(row.get("Quantity"), 1.0)),
-                    "unit": str(row.get("Unit") or "item").strip() or "item",
-                    "planned_uses": max(0, int(_float(row.get("Planned uses"), 1))),
-                    "purchased": purchased,
-                    "notes": str(row.get("Notes") or "").strip(),
-                })
-            with SessionLocal() as session:
-                session.execute(delete(models.GroceryListItem).where(models.GroceryListItem.user_id == user.id))
-                for row in clean_rows:
-                    session.add(models.GroceryListItem(user_id=user.id, **row))
-                session.commit()
-            st.session_state.pop("editable_grocery_list", None)
-            st.success("Grocery list updated.")
-            st.rerun()
-
-        st.download_button(
-            "Download adjusted grocery list",
-            data=grocery_editor.to_csv(index=False).encode(),
-            file_name="nourivanta_grocery_list.csv",
-            mime="text/csv",
-            width="stretch",
-        )
+        st.subheader("Automatic grocery list")
+        if grocery:
+            grocery_df = pd.DataFrame([{"Ingredient": key, "Planned uses": count} for key, count in sorted(grocery.items())])
+            st.dataframe(grocery_df, width="stretch", hide_index=True)
+            st.download_button("Download grocery list", data=grocery_df.to_csv(index=False).encode(), file_name="nourivanta_grocery_list.csv", mime="text/csv", width="stretch")
+        else:
+            st.info("Generate a meal plan or add custom meals with ingredients to build the grocery list.")
         st.metric("Estimated planned grocery cost", f"${estimated_cost:,.2f}")
 
 
@@ -1840,70 +1751,82 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
 
 
 def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
-    """Render security and optional subscription controls.
-
-    Family profiles and Coach Mode are intentionally hidden. Existing records
-    and tables are retained so no historical data is deleted.
-    """
     models = ctx["models"]
     SessionLocal = ctx["SessionLocal"]
-    security_tab, premium_tab = st.tabs(["Security", "Premium-ready"])
-
+    family_tab, coach_tab, security_tab, premium_tab = st.tabs(["Family profiles", "Coach mode", "Security", "Premium-ready"])
+    with family_tab:
+        with st.form("household_profile"):
+            c1, c2 = st.columns(2)
+            name = c1.text_input("Profile name")
+            relationship = c2.text_input("Relationship", value="Family")
+            c3, c4, c5 = st.columns(3)
+            age = c3.number_input("Age", min_value=0, max_value=120, value=0)
+            calories = c4.number_input("Calorie target", min_value=500, max_value=10000, value=2000)
+            protein = c5.number_input("Protein target", min_value=0, max_value=1000, value=100)
+            private = st.checkbox("Keep measurements private", value=True)
+            add = st.form_submit_button("Add family profile", type="primary", width="stretch")
+        if add and name.strip():
+            with SessionLocal() as session:
+                session.add(models.HouseholdProfile(owner_user_id=user.id, name=name.strip(), relationship=relationship.strip(), age=int(age) or None, calorie_target=int(calories), protein_target=int(protein), private_measurements=private))
+                session.commit()
+            st.rerun()
+        with SessionLocal() as session:
+            profiles = session.scalars(select(models.HouseholdProfile).where(models.HouseholdProfile.owner_user_id == user.id)).all()
+        if profiles:
+            st.dataframe(pd.DataFrame([{"Name": x.name, "Relationship": x.relationship, "Age": x.age, "Calories": x.calorie_target, "Protein": x.protein_target, "Private measurements": x.private_measurements} for x in profiles]), width="stretch", hide_index=True)
+    with coach_tab:
+        with SessionLocal() as session:
+            pref = _get_preferences(session, models, user.id)
+            if not pref.coach_share_code:
+                pref.coach_share_code = secrets.token_urlsafe(8)
+            share_code = pref.coach_share_code
+            session.commit()
+        st.code(share_code)
+        st.caption("Share this code only with someone you trust. It identifies the export you choose to share. It does not expose your password.")
+        if st.button("Rotate coach share code"):
+            with SessionLocal() as session:
+                pref = _get_preferences(session, models, user.id)
+                pref.coach_share_code = secrets.token_urlsafe(8)
+                session.commit()
+            st.rerun()
+        with st.form("coach_note"):
+            c1, c2 = st.columns(2)
+            note_date = c1.date_input("Note date", value=local_today(), format="MM/DD/YYYY")
+            coach_name = c2.text_input("Coach or reviewer", value="Coach")
+            category = st.selectbox("Category", ["General", "Nutrition", "Training", "Recovery", "Goal"])
+            note = st.text_area("Coach note")
+            save = st.form_submit_button("Save coach note", type="primary", width="stretch")
+        if save and note.strip():
+            with SessionLocal() as session:
+                session.add(models.CoachNote(user_id=user.id, note_date=note_date, coach_name=coach_name.strip() or "Coach", category=category, note=note.strip()))
+                session.commit()
+            st.success("Coach note saved.")
+        with SessionLocal() as session:
+            notes = session.scalars(select(models.CoachNote).where(models.CoachNote.user_id == user.id).order_by(models.CoachNote.note_date.desc())).all()
+        if notes:
+            st.dataframe(pd.DataFrame([{"Date": x.note_date.strftime("%m/%d/%Y"), "Coach": x.coach_name, "Category": x.category, "Note": x.note} for x in notes]), width="stretch", hide_index=True)
     with security_tab:
         with SessionLocal() as session:
             security = _get_security(session, models, user.id)
-            timeout_value = int(security.session_timeout_min or 1440)
-            if timeout_value == 90:
-                timeout_value = 1440
-                security.session_timeout_min = timeout_value
-            events = session.scalars(
-                select(models.LoginEvent)
-                .where(models.LoginEvent.user_id == user.id)
-                .order_by(models.LoginEvent.event_time.desc())
-                .limit(20)
-            ).all()
+            timeout_value = security.session_timeout_min
+            events = session.scalars(select(models.LoginEvent).where(models.LoginEvent.user_id == user.id).order_by(models.LoginEvent.event_time.desc()).limit(20)).all()
             session.commit()
-
-        timeout = st.number_input(
-            "Automatic sign-out after inactive minutes",
-            min_value=60,
-            max_value=10080,
-            value=max(60, min(timeout_value, 10080)),
-            step=60,
-            help="The default is 1,440 minutes, or 24 hours. The maximum is seven days.",
-        )
-        st.caption(f"Current inactivity window: {timeout / 60:g} hour(s).")
+        timeout = st.number_input("Automatic sign-out after inactive minutes", min_value=15, max_value=720, value=int(timeout_value), step=15)
         if st.button("Save session timeout"):
             with SessionLocal() as session:
                 security = _get_security(session, models, user.id)
                 security.session_timeout_min = int(timeout)
                 session.commit()
             st.success("Session timeout saved.")
-
         if st.button("Generate a new recovery code"):
             code = issue_recovery_code(SessionLocal, models, user.id, ctx["hash_password"])
             st.session_state.elite_new_recovery_code = code
         if st.session_state.get("elite_new_recovery_code"):
             st.warning("Save this recovery code in a secure place. Generating another code invalidates this one.")
             st.code(st.session_state.elite_new_recovery_code)
-
         st.subheader("Recent account access")
         if events:
-            st.dataframe(
-                pd.DataFrame([
-                    {
-                        "Date": utc_naive_to_local(x.event_time).strftime("%m/%d/%Y %I:%M %p"),
-                        "Success": x.success,
-                        "Client": x.client_info,
-                    }
-                    for x in events
-                ]),
-                width="stretch",
-                hide_index=True,
-            )
-        else:
-            st.info("Recent login activity will appear here.")
-
+            st.dataframe(pd.DataFrame([{"Date": utc_naive_to_local(x.event_time).strftime("%m/%d/%Y %I:%M %p"), "Success": x.success, "Client": x.client_info} for x in events]), width="stretch", hide_index=True)
     with premium_tab:
         payment_link = os.getenv("STRIPE_PAYMENT_LINK", "").strip()
         st.markdown("**Premium structure is ready for a hosted Stripe subscription link.** Core app data and features stay available even when billing is not configured.")
@@ -1911,24 +1834,12 @@ def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
             st.link_button("Open NouriVanta Elite subscription", payment_link)
         else:
             st.info("Set STRIPE_PAYMENT_LINK in your hosting secrets to display a live subscription checkout button.")
-        st.markdown("Planned premium controls: unlimited AI scans, advanced coaching history, wearable connectors, extended reports, and other optional services.")
+        st.markdown("Planned premium controls: unlimited AI scans, advanced coaching history, wearable connectors, trainer access, family planning, and extended reports.")
 
 
-# Public rendering functions imported by app.py. Keeping these thin wrappers
-# preserves the internal helper structure while providing a stable module API.
 def render_adaptive_coach(user: Any, ctx: dict[str, Any]) -> None:
     inject_elite_css()
     _render_coach(user, ctx)
-
-
-def render_elite_progress_center(user: Any, ctx: dict[str, Any]) -> None:
-    inject_elite_css()
-    _render_progress_center(user, ctx)
-
-
-def render_family_and_security(user: Any, ctx: dict[str, Any]) -> None:
-    inject_elite_css()
-    _render_family_security(user, ctx)
 
 
 def render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
@@ -1936,19 +1847,30 @@ def render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
     _render_food_intelligence(user, ctx)
 
 
-def render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
-    inject_elite_css()
-    _render_meal_planner(user, ctx)
-
-
 def render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
     inject_elite_css()
     _render_training_lab(user, ctx)
 
 
+def render_meal_planner(user: Any, ctx: dict[str, Any]) -> None:
+    inject_elite_css()
+    _render_meal_planner(user, ctx)
+
+
+def render_elite_progress_center(user: Any, ctx: dict[str, Any]) -> None:
+    inject_elite_css()
+    _render_progress_center(user, ctx)
+
+
 def render_voice_and_wearables(user: Any, ctx: dict[str, Any]) -> None:
     inject_elite_css()
     _render_voice_wearables(user, ctx)
+
+
+def render_family_and_security(user: Any, ctx: dict[str, Any]) -> None:
+    inject_elite_css()
+    _render_family_security(user, ctx)
+
 
 def render_elite_hub(user: Any, ctx: dict[str, Any]) -> None:
     inject_elite_css()
@@ -1969,7 +1891,7 @@ def render_elite_hub(user: Any, ctx: dict[str, Any]) -> None:
     )
     tabs = st.tabs([
         "Adaptive Coach",
-        "Nutrition Insights",
+        "Food Intelligence",
         "Training Lab",
         "Meal Planner",
         "Progress Center",
@@ -1998,7 +1920,6 @@ def elite_export_files(SessionLocal: Any, models: SimpleNamespace, user_id: int)
         "saved_meals.csv": models.SavedMeal,
         "meal_plan_entries.csv": models.MealPlanEntry,
         "pantry_items.csv": models.PantryItem,
-        "grocery_list_items.csv": models.GroceryListItem,
         "workout_programs.csv": models.WorkoutProgram,
         "coach_reports.csv": models.CoachReport,
         "wearable_metrics.csv": models.WearableMetric,
