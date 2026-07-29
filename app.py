@@ -3193,17 +3193,84 @@ def render_progress(user: User) -> None:
         chart_source = df[["Date", chart_choice]].dropna().copy()
         if not chart_source.empty:
             chart_source["Date"] = pd.to_datetime(chart_source["Date"])
+            all_chart_source = chart_source.copy()
             period_days = {"Weekly": 7, "Monthly": 30, "3 Months": 90, "Yearly": 365}
+            period_end = all_chart_source["Date"].max().normalize()
+
             if chart_period in period_days:
-                period_end = chart_source["Date"].max().normalize()
                 period_start = period_end - pd.Timedelta(days=period_days[chart_period] - 1)
-                chart_source = chart_source[chart_source["Date"] >= period_start]
-                st.caption(f"Showing {chart_period.lower()} progress from {period_start.strftime('%m/%d/%Y')} through {period_end.strftime('%m/%d/%Y')}.")
+                chart_source = all_chart_source[
+                    (all_chart_source["Date"] >= period_start)
+                    & (all_chart_source["Date"] <= period_end)
+                ].copy()
+                st.caption(
+                    f"Showing {chart_period.lower()} progress from "
+                    f"{period_start.strftime('%m/%d/%Y')} through {period_end.strftime('%m/%d/%Y')}."
+                )
             else:
-                st.caption("Showing all saved measurements.")
-            chart_df = chart_source.set_index("Date")
-            if not chart_df.empty:
-                st.line_chart(chart_df, width="stretch")
+                period_start = all_chart_source["Date"].min().normalize()
+                chart_source = all_chart_source.copy()
+                st.caption(
+                    f"Showing all saved measurements from "
+                    f"{period_start.strftime('%m/%d/%Y')} through {period_end.strftime('%m/%d/%Y')}."
+                )
+
+            if period_start == period_end:
+                period_start = period_start - pd.Timedelta(days=1)
+                period_end = period_end + pd.Timedelta(days=1)
+
+            if not chart_source.empty:
+                span_days = max(1, int((period_end - period_start).days))
+                if chart_period == "Weekly":
+                    date_format, tick_count = "%a %m/%d", 7
+                elif chart_period == "Monthly":
+                    date_format, tick_count = "%b %d", 6
+                elif chart_period == "3 Months":
+                    date_format, tick_count = "%b %d", 7
+                elif chart_period == "Yearly":
+                    date_format, tick_count = "%b %Y", 12
+                elif span_days <= 31:
+                    date_format, tick_count = "%b %d", 6
+                elif span_days <= 120:
+                    date_format, tick_count = "%b %d", 7
+                elif span_days <= 730:
+                    date_format, tick_count = "%b %Y", 10
+                else:
+                    date_format, tick_count = "%Y", 8
+
+                chart_spec = {
+                    "mark": {"type": "line", "point": True},
+                    "height": 360,
+                    "encoding": {
+                        "x": {
+                            "field": "Date",
+                            "type": "temporal",
+                            "title": None,
+                            "scale": {
+                                "domain": [
+                                    period_start.strftime("%Y-%m-%dT00:00:00"),
+                                    period_end.strftime("%Y-%m-%dT00:00:00"),
+                                ]
+                            },
+                            "axis": {
+                                "format": date_format,
+                                "labelAngle": 0,
+                                "tickCount": tick_count,
+                            },
+                        },
+                        "y": {
+                            "field": chart_choice,
+                            "type": "quantitative",
+                            "title": chart_choice,
+                            "scale": {"zero": True},
+                        },
+                        "tooltip": [
+                            {"field": "Date", "type": "temporal", "title": "Date", "format": "%m/%d/%Y"},
+                            {"field": chart_choice, "type": "quantitative", "title": chart_choice},
+                        ],
+                    },
+                }
+                st.vega_lite_chart(chart_source, chart_spec, use_container_width=True)
             else:
                 st.info("No measurements are available for this chart period.")
         st.dataframe(df.drop(columns=["ID"]), width="stretch", hide_index=True)

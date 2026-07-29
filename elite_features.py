@@ -771,8 +771,6 @@ def _render_food_intelligence(user: Any, ctx: dict[str, Any]) -> None:
                 source_bytes = source_file.getvalue()
                 scan_bytes = _enhance_label_preview(source_bytes) or source_bytes
                 st.image(scan_bytes, caption="Enhanced label photo", width=520)
-                with st.expander("View original photo"):
-                    st.image(source_bytes, width=520)
                 st.caption("Tip: Keep the Nutrition Facts panel close, upright, and well lit for the best scan result.")
             if st.button("Read nutrition label", type="primary", disabled=not bool(source_file)):
                 if not api_key:
