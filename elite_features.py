@@ -513,6 +513,32 @@ def inject_elite_css() -> None:
         .nv-readiness-low { color:#C23A4B; }
         @media(max-width:900px){ .nv-elite-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
         @media(max-width:600px){ .nv-elite-grid{grid-template-columns:1fr;} }
+
+        /* Dark appearance overrides for Elite feature cards only. */
+        .nv-elite-hero,
+        .nv-elite-tile,
+        .nv-suggestion-card {
+            background: linear-gradient(145deg, rgba(24,33,57,.97), rgba(14,27,47,.95)) !important;
+            border-color: rgba(132,145,255,.24) !important;
+            box-shadow: 0 10px 28px rgba(0,0,0,.22) !important;
+            color: #EEF3FF !important;
+        }
+        .nv-elite-hero h2,
+        .nv-elite-tile strong,
+        .nv-suggestion-name { color: #F5F7FF !important; }
+        .nv-elite-hero p,
+        .nv-suggestion-meta { color: #A7B3C8 !important; }
+        .nv-chip-elite {
+            background: linear-gradient(90deg, rgba(109,93,251,.28), rgba(19,196,212,.17)) !important;
+            color: #DCD8FF !important;
+            border: 1px solid rgba(132,145,255,.24) !important;
+        }
+        .nv-gap-bar { background: #263149 !important; }
+        .nv-suggestion-metric {
+            background: rgba(132,145,255,.10) !important;
+            color: #DDE5F7 !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,

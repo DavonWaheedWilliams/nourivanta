@@ -1501,6 +1501,321 @@ def inject_css() -> None:
                 padding-right: .55rem !important;
             }
         }
+
+        /* NouriVanta dark appearance: visual overrides only. */
+        :root {
+            --ink: #EEF3FF;
+            --muted: #A7B3C8;
+            --surface: rgba(19,27,48,.94);
+            --line: rgba(132,145,255,.24);
+            --shadow: 0 18px 48px rgba(0,0,0,.34);
+        }
+        html, body, [data-testid="stAppViewContainer"], .stApp {
+            color-scheme: dark;
+            background:
+                radial-gradient(circle at 6% 3%, rgba(109,93,251,.25), transparent 28%),
+                radial-gradient(circle at 95% 8%, rgba(19,196,212,.20), transparent 29%),
+                radial-gradient(circle at 88% 78%, rgba(255,159,67,.10), transparent 27%),
+                linear-gradient(180deg, #090E1A 0%, #0D1424 48%, #0B1822 100%) !important;
+            color: var(--ink) !important;
+        }
+        [data-testid="stHeader"] { background: rgba(9,14,26,.80) !important; }
+        [data-testid="stToolbar"] { color: #DCE5F8 !important; }
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, rgba(11,17,31,.99) 0%, rgba(17,20,43,.98) 50%, rgba(8,28,36,.98) 100%) !important;
+            border-right: 1px solid rgba(132,145,255,.23) !important;
+            box-shadow: 12px 0 36px rgba(0,0,0,.24) !important;
+        }
+        [data-testid="stSidebar"] * { color: #DCE5F8; }
+        h1, h2, h3, h4, h5, h6,
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        label, .stCaption { color: var(--ink); }
+        small, [data-testid="stCaptionContainer"], .stCaption { color: var(--muted) !important; }
+        .nv-title {
+            background: linear-gradient(90deg, #FFFFFF 0%, #AFA7FF 46%, #4FE6F2 100%) !important;
+            -webkit-background-clip: text !important;
+            background-clip: text !important;
+            color: transparent !important;
+        }
+        .nv-kicker { color: #AAA1FF !important; }
+        .nv-subtitle, .nv-label, .nv-meta, .nv-ring-meta, .nv-user { color: var(--muted) !important; }
+        .nv-value, .nv-ring-value { color: #F7F9FF !important; }
+        .nv-ring-unit { color: #AEBBD0 !important; }
+        .nv-hero,
+        .nv-card,
+        .nv-ring-card,
+        .nv-auth-card,
+        .nv-future-card,
+        .nv-scan-shell,
+        .nv-score-wrap,
+        .nv-result-cell,
+        .nv-muted-panel,
+        .nv-empty {
+            background: linear-gradient(145deg, rgba(24,33,57,.98), rgba(16,27,48,.96) 54%, rgba(11,37,45,.94)) !important;
+            border-color: rgba(132,145,255,.24) !important;
+            box-shadow: 0 16px 40px rgba(0,0,0,.27) !important;
+            color: var(--ink) !important;
+        }
+        .nv-future-card:nth-child(1),
+        .nv-future-card:nth-child(2),
+        .nv-future-card:nth-child(3) {
+            background: linear-gradient(145deg, rgba(28,35,65,.98), rgba(15,29,48,.97)) !important;
+            border-color: rgba(132,145,255,.24) !important;
+        }
+        .nv-dashboard-ring { background: #222B42 !important; }
+        .nv-dashboard-ring:before,
+        .nv-score-ring:before {
+            background: linear-gradient(145deg, #151E33, #0E1729) !important;
+            box-shadow: inset 0 0 0 1px rgba(151,162,255,.17), 0 5px 16px rgba(0,0,0,.34) !important;
+        }
+        .nv-progress, .nv-gap-bar { background: #263149 !important; }
+        .nv-chip {
+            color: #D8D4FF !important;
+            background: linear-gradient(90deg, rgba(109,93,251,.24), rgba(19,196,212,.17)) !important;
+            border-color: rgba(151,162,255,.30) !important;
+        }
+        .nv-result-cell b, .nv-score-ring strong { color: #F7F9FF !important; }
+        .nv-muted-panel { color: #B8C4D7 !important; }
+        div[data-testid="stMetric"] {
+            background: linear-gradient(145deg, rgba(24,33,57,.97), rgba(14,25,43,.95)) !important;
+            border: 1px solid rgba(132,145,255,.23) !important;
+            box-shadow: 0 10px 28px rgba(0,0,0,.20) !important;
+        }
+        div[data-testid="stMetric"] label,
+        div[data-testid="stMetric"] [data-testid="stMetricValue"],
+        div[data-testid="stMetric"] [data-testid="stMetricDelta"] { color: #EEF3FF !important; }
+        [data-testid="stForm"],
+        [data-testid="stCameraInput"],
+        [data-testid="stFileUploader"],
+        details[data-testid="stExpander"] {
+            background: linear-gradient(145deg, rgba(22,31,53,.96), rgba(13,25,42,.94)) !important;
+            border-color: rgba(132,145,255,.23) !important;
+            box-shadow: 0 10px 28px rgba(0,0,0,.18) !important;
+        }
+        [data-baseweb="input"] > div,
+        [data-baseweb="base-input"],
+        [data-baseweb="select"] > div,
+        [data-baseweb="textarea"] > div,
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        textarea,
+        input {
+            background: #111A2D !important;
+            color: #EEF3FF !important;
+            border-color: rgba(132,145,255,.28) !important;
+        }
+        input::placeholder, textarea::placeholder { color: #7786A1 !important; opacity: 1 !important; }
+        [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"] {
+            background: #121C30 !important;
+            color: #EEF3FF !important;
+        }
+        [role="option"] { background: #121C30 !important; color: #EEF3FF !important; }
+        [role="option"]:hover, [aria-selected="true"][role="option"] { background: #243054 !important; }
+        button[kind="secondary"],
+        [data-testid="stBaseButton-secondary"] {
+            background: linear-gradient(145deg, #1C2740, #111B30) !important;
+            color: #EEF3FF !important;
+            border-color: rgba(132,145,255,.30) !important;
+        }
+        button[kind="secondary"]:hover,
+        [data-testid="stBaseButton-secondary"]:hover {
+            border-color: rgba(79,220,235,.65) !important;
+            background: #202E4C !important;
+        }
+        [data-testid="stTabs"] [data-baseweb="tab-list"],
+        [data-testid="stMain"] [data-testid="stRadio"] > div[role="radiogroup"] {
+            background: linear-gradient(90deg, rgba(27,35,64,.96), rgba(13,39,50,.94), rgba(43,31,46,.90)) !important;
+            border-color: rgba(132,145,255,.22) !important;
+            box-shadow: 0 10px 28px rgba(0,0,0,.18) !important;
+        }
+        [data-testid="stTabs"] button[role="tab"],
+        [data-testid="stMain"] [data-testid="stRadio"] label {
+            color: #B7C3D8 !important;
+        }
+        [data-testid="stMain"] [data-testid="stRadio"] label:hover {
+            background: rgba(69,82,125,.40) !important;
+            color: #FFFFFF !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(90deg, rgba(109,93,251,.34), rgba(19,196,212,.24)) !important;
+            border-color: rgba(132,145,255,.30) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p { color: #FFFFFF !important; }
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"] {
+            background: #111A2D !important;
+            border: 1px solid rgba(132,145,255,.20) !important;
+            border-radius: 14px !important;
+            overflow: hidden !important;
+        }
+        [data-testid="stDataFrame"] canvas { filter: brightness(.82) contrast(1.08); }
+        [data-testid="stAlert"] {
+            background: rgba(27,38,63,.96) !important;
+            color: #EEF3FF !important;
+            border-color: rgba(132,145,255,.24) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,.20) !important;
+        }
+        [data-testid="stProgress"] > div > div { background: #253149 !important; }
+        hr { border-color: rgba(132,145,255,.18) !important; }
+        a { color: #66E3F0 !important; }
+        code { background: #121C30 !important; color: #D8E2FF !important; }
+
+        /* High-specificity readability fixes for every Streamlit input. */
+        .nv-auth-heading { color: #F7F9FF !important; }
+        .nv-auth-copy { color: #A7B3C8 !important; }
+        .nv-auth-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .75rem;
+            margin-top: 1.1rem;
+        }
+        .nv-auth-feature-card {
+            padding: .8rem;
+            border-radius: 14px;
+            background: linear-gradient(145deg, rgba(35,45,77,.98), rgba(17,31,52,.97)) !important;
+            border: 1px solid rgba(132,145,255,.22);
+            color: #F7F9FF !important;
+        }
+        .nv-auth-feature-card b { color: #F7F9FF !important; }
+        .nv-auth-feature-card .nv-meta { color: #B4C0D4 !important; }
+
+        [data-testid="stTextInput"] label,
+        [data-testid="stNumberInput"] label,
+        [data-testid="stDateInput"] label,
+        [data-testid="stTimeInput"] label,
+        [data-testid="stSelectbox"] label,
+        [data-testid="stMultiSelect"] label,
+        [data-testid="stTextArea"] label {
+            color: #EAF0FF !important;
+        }
+
+        [data-testid="stTextInput"] [data-baseweb="input"] > div,
+        [data-testid="stNumberInput"] [data-baseweb="input"] > div,
+        [data-testid="stDateInput"] [data-baseweb="input"] > div,
+        [data-testid="stTimeInput"] [data-baseweb="input"] > div,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+        [data-testid="stTextArea"] [data-baseweb="textarea"] > div,
+        div[data-baseweb="input"],
+        div[data-baseweb="base-input"],
+        div[data-baseweb="textarea"] {
+            background: #111A2D !important;
+            background-color: #111A2D !important;
+            color: #F7F9FF !important;
+            border-color: rgba(142,154,255,.42) !important;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.02) !important;
+        }
+
+        [data-testid="stTextInput"] [data-baseweb="input"] > div:hover,
+        [data-testid="stNumberInput"] [data-baseweb="input"] > div:hover,
+        [data-testid="stDateInput"] [data-baseweb="input"] > div:hover,
+        [data-testid="stTimeInput"] [data-baseweb="input"] > div:hover,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover,
+        [data-testid="stTextArea"] [data-baseweb="textarea"] > div:hover {
+            background: #15213A !important;
+            border-color: #6EDFEA !important;
+        }
+
+        [data-testid="stTextInput"] [data-baseweb="input"] > div:focus-within,
+        [data-testid="stNumberInput"] [data-baseweb="input"] > div:focus-within,
+        [data-testid="stDateInput"] [data-baseweb="input"] > div:focus-within,
+        [data-testid="stTimeInput"] [data-baseweb="input"] > div:focus-within,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within,
+        [data-testid="stTextArea"] [data-baseweb="textarea"] > div:focus-within {
+            background: #17233D !important;
+            border-color: #8E84EE !important;
+            box-shadow: 0 0 0 3px rgba(109,93,251,.20), 0 0 18px rgba(19,196,212,.10) !important;
+        }
+
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,
+        [data-testid="stTextArea"] textarea,
+        [data-testid="stSelectbox"] input,
+        [data-testid="stMultiSelect"] input,
+        [data-baseweb="select"] input,
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        input[type="number"],
+        input[type="date"],
+        input[type="time"],
+        textarea {
+            color: #F7F9FF !important;
+            -webkit-text-fill-color: #F7F9FF !important;
+            caret-color: #66E3F0 !important;
+            background: transparent !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stSelectbox"] [data-baseweb="select"] span,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] span,
+        [data-testid="stSelectbox"] [data-baseweb="select"] div,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] div {
+            color: #F7F9FF !important;
+            -webkit-text-fill-color: #F7F9FF !important;
+        }
+
+        [data-testid="stTextInput"] input::placeholder,
+        [data-testid="stNumberInput"] input::placeholder,
+        [data-testid="stDateInput"] input::placeholder,
+        [data-testid="stTimeInput"] input::placeholder,
+        [data-testid="stTextArea"] textarea::placeholder,
+        [data-testid="stSelectbox"] input::placeholder,
+        [data-testid="stMultiSelect"] input::placeholder,
+        input::placeholder,
+        textarea::placeholder {
+            color: #8796B2 !important;
+            -webkit-text-fill-color: #8796B2 !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stNumberInput"] button svg,
+        [data-testid="stDateInput"] button svg,
+        [data-testid="stTimeInput"] button svg,
+        [data-testid="stSelectbox"] button svg,
+        [data-testid="stMultiSelect"] button svg,
+        [data-testid="stTextInput"] button svg {
+            fill: #C9D4E8 !important;
+            color: #C9D4E8 !important;
+        }
+
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
+            filter: invert(1) brightness(1.4) !important;
+            opacity: .9 !important;
+        }
+
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        textarea:-webkit-autofill,
+        select:-webkit-autofill {
+            -webkit-box-shadow: 0 0 0 1000px #111A2D inset !important;
+            -webkit-text-fill-color: #F7F9FF !important;
+            caret-color: #66E3F0 !important;
+            transition: background-color 9999s ease-out 0s;
+        }
+
+        [data-testid="stTextInput"] input:disabled,
+        [data-testid="stNumberInput"] input:disabled,
+        [data-testid="stDateInput"] input:disabled,
+        [data-testid="stTimeInput"] input:disabled,
+        textarea:disabled {
+            color: #CBD5E8 !important;
+            -webkit-text-fill-color: #CBD5E8 !important;
+            opacity: .75 !important;
+        }
+
+        @media(max-width:600px) {
+            .nv-auth-feature-grid { grid-template-columns: 1fr; }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1852,11 +2167,11 @@ def render_auth() -> None:
                     Track food, macros, water, workouts, strength sets, body measurements, and goals.
                     Your records stay linked to your private account across sessions.
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1.1rem">
-                    <div style="padding:.8rem;border-radius:14px;background:#F5F3FF"><b>Nutrition</b><br><span class="nv-meta">Calories and macros</span></div>
-                    <div style="padding:.8rem;border-radius:14px;background:#ECFEFF"><b>Training</b><br><span class="nv-meta">Sessions and sets</span></div>
-                    <div style="padding:.8rem;border-radius:14px;background:#F0FDF4"><b>Progress</b><br><span class="nv-meta">Weight and measurements</span></div>
-                    <div style="padding:.8rem;border-radius:14px;background:#FFF7ED"><b>Goals</b><br><span class="nv-meta">Targets and deadlines</span></div>
+                <div class="nv-auth-feature-grid">
+                    <div class="nv-auth-feature-card"><b>Nutrition</b><br><span class="nv-meta">Calories and macros</span></div>
+                    <div class="nv-auth-feature-card"><b>Training</b><br><span class="nv-meta">Sessions and sets</span></div>
+                    <div class="nv-auth-feature-card"><b>Progress</b><br><span class="nv-meta">Weight and measurements</span></div>
+                    <div class="nv-auth-feature-card"><b>Goals</b><br><span class="nv-meta">Targets and deadlines</span></div>
                 </div>
             </div>
             """,
