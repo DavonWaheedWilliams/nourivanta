@@ -1930,6 +1930,139 @@ def inject_css() -> None:
             opacity: .88 !important;
         }
 
+
+
+        /* Uniform control sizing across all pages. */
+        :root {
+            --nv-control-height: 3.15rem;
+            --nv-control-radius: 11px;
+        }
+
+        /* Text, date, time, password and number field shells. */
+        [data-testid="stTextInput"] div[data-baseweb="input"],
+        [data-testid="stNumberInput"] div[data-baseweb="input"],
+        [data-testid="stDateInput"] div[data-baseweb="input"],
+        [data-testid="stTimeInput"] div[data-baseweb="input"] {
+            height: var(--nv-control-height) !important;
+            min-height: var(--nv-control-height) !important;
+            max-height: var(--nv-control-height) !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: stretch !important;
+            border-radius: var(--nv-control-radius) !important;
+        }
+
+        [data-testid="stTextInput"] div[data-baseweb="base-input"],
+        [data-testid="stNumberInput"] div[data-baseweb="base-input"],
+        [data-testid="stDateInput"] div[data-baseweb="base-input"],
+        [data-testid="stTimeInput"] div[data-baseweb="base-input"] {
+            height: 100% !important;
+            min-height: 100% !important;
+            flex: 1 1 auto !important;
+            display: flex !important;
+            align-items: center !important;
+            padding: 0 .84rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }
+
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input {
+            height: 100% !important;
+            min-height: 100% !important;
+            line-height: var(--nv-control-height) !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        /* Select and multiselect controls match neighboring text fields. */
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+            height: var(--nv-control-height) !important;
+            min-height: var(--nv-control-height) !important;
+            max-height: var(--nv-control-height) !important;
+            padding: 0 .84rem !important;
+            display: flex !important;
+            align-items: center !important;
+            border-radius: var(--nv-control-radius) !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+        }
+
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div {
+            min-height: 0 !important;
+            height: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        [data-testid="stSelectbox"] input,
+        [data-testid="stMultiSelect"] input {
+            min-height: 0 !important;
+            height: auto !important;
+            line-height: 1.35 !important;
+        }
+
+        /* Number-input step buttons fill the same field height. */
+        [data-testid="stNumberInput"] button {
+            align-self: stretch !important;
+            height: 100% !important;
+            min-height: var(--nv-control-height) !important;
+            max-height: var(--nv-control-height) !important;
+            width: 2.65rem !important;
+            min-width: 2.65rem !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-sizing: border-box !important;
+        }
+
+        [data-testid="stNumberInput"] button:first-of-type {
+            border-left: 1px solid rgba(145,164,201,.34) !important;
+        }
+
+        [data-testid="stNumberInput"] button:last-of-type {
+            border-top-right-radius: calc(var(--nv-control-radius) - 1px) !important;
+            border-bottom-right-radius: calc(var(--nv-control-radius) - 1px) !important;
+        }
+
+        [data-testid="stNumberInput"] button svg {
+            width: 1.05rem !important;
+            height: 1.05rem !important;
+        }
+
+        /* Calendar, clock and reveal-password buttons also remain vertically centered. */
+        [data-testid="stTextInput"] button,
+        [data-testid="stDateInput"] button,
+        [data-testid="stTimeInput"] button,
+        [data-testid="stSelectbox"] button,
+        [data-testid="stMultiSelect"] button {
+            height: 100% !important;
+            min-height: 100% !important;
+            align-self: stretch !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        @media (max-width: 600px) {
+            :root { --nv-control-height: 3.05rem; }
+            [data-testid="stNumberInput"] button {
+                width: 2.55rem !important;
+                min-width: 2.55rem !important;
+            }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
