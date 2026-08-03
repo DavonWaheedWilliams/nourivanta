@@ -2037,8 +2037,34 @@ def inject_css() -> None:
         }
 
         [data-testid="stNumberInput"] button svg {
-            width: 1.05rem !important;
-            height: 1.05rem !important;
+            width: .86rem !important;
+            height: .86rem !important;
+        }
+
+        /* Match number steppers to the field text and field background. */
+        [data-testid="stNumberInput"] button {
+            background: #1B2943 !important;
+            background-color: #1B2943 !important;
+            color: #FFFFFF !important;
+            font-size: 1rem !important;
+            line-height: 1 !important;
+            border-color: #52688E !important;
+            box-shadow: none !important;
+        }
+
+        [data-testid="stNumberInput"] button:hover {
+            background: #20314F !important;
+            background-color: #20314F !important;
+            color: #FFFFFF !important;
+        }
+
+        [data-testid="stNumberInput"] button:focus,
+        [data-testid="stNumberInput"] button:focus-visible {
+            background: #223552 !important;
+            background-color: #223552 !important;
+            color: #FFFFFF !important;
+            box-shadow: inset 0 0 0 1px #9A8CFF !important;
+            outline: none !important;
         }
 
         /* Calendar, clock and reveal-password buttons also remain vertically centered. */
