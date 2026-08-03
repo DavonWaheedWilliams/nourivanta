@@ -1816,6 +1816,120 @@ def inject_css() -> None:
             .nv-auth-feature-grid { grid-template-columns: 1fr; }
         }
 
+        /* Stronger field contrast across every dark-theme page. */
+        [data-testid="stTextInput"] div[data-baseweb="input"],
+        [data-testid="stNumberInput"] div[data-baseweb="input"],
+        [data-testid="stDateInput"] div[data-baseweb="input"],
+        [data-testid="stTimeInput"] div[data-baseweb="input"],
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
+        [data-testid="stTextArea"] div[data-baseweb="textarea"],
+        [data-testid="stTextArea"] div[data-baseweb="textarea"] > div {
+            background: #1B2943 !important;
+            background-color: #1B2943 !important;
+            border: 1.5px solid #52688E !important;
+            border-radius: 11px !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,.045),
+                0 0 0 1px rgba(7,12,24,.36),
+                0 5px 14px rgba(0,0,0,.16) !important;
+        }
+
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,
+        [data-testid="stSelectbox"] input,
+        [data-testid="stMultiSelect"] input,
+        [data-testid="stTextArea"] textarea {
+            background: #1B2943 !important;
+            background-color: #1B2943 !important;
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+            border: 0 !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stTextArea"] textarea {
+            min-height: 112px;
+        }
+
+        [data-testid="stSelectbox"] div[data-baseweb="select"] span,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] span,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] div,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] div {
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+        }
+
+        [data-testid="stTextInput"] div[data-baseweb="input"]:hover,
+        [data-testid="stNumberInput"] div[data-baseweb="input"]:hover,
+        [data-testid="stDateInput"] div[data-baseweb="input"]:hover,
+        [data-testid="stTimeInput"] div[data-baseweb="input"]:hover,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover,
+        [data-testid="stTextArea"] div[data-baseweb="textarea"]:hover {
+            background: #20314F !important;
+            background-color: #20314F !important;
+            border-color: #73D8E7 !important;
+        }
+
+        [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+        [data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
+        [data-testid="stDateInput"] div[data-baseweb="input"]:focus-within,
+        [data-testid="stTimeInput"] div[data-baseweb="input"]:focus-within,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within,
+        [data-testid="stTextArea"] div[data-baseweb="textarea"]:focus-within {
+            background: #223552 !important;
+            background-color: #223552 !important;
+            border-color: #9A8CFF !important;
+            box-shadow: 0 0 0 3px rgba(124,108,255,.26), 0 7px 18px rgba(0,0,0,.20) !important;
+        }
+
+        [data-testid="stNumberInput"] button,
+        [data-testid="stDateInput"] button,
+        [data-testid="stTimeInput"] button,
+        [data-testid="stSelectbox"] button,
+        [data-testid="stMultiSelect"] button,
+        [data-testid="stTextInput"] button {
+            background: #263A5A !important;
+            color: #F4F7FF !important;
+            border-color: rgba(145,164,201,.42) !important;
+        }
+
+        [data-testid="stNumberInput"] button:hover,
+        [data-testid="stDateInput"] button:hover,
+        [data-testid="stTimeInput"] button:hover,
+        [data-testid="stSelectbox"] button:hover,
+        [data-testid="stMultiSelect"] button:hover,
+        [data-testid="stTextInput"] button:hover {
+            background: #30496F !important;
+        }
+
+        [data-testid="stTextInput"] input::placeholder,
+        [data-testid="stNumberInput"] input::placeholder,
+        [data-testid="stDateInput"] input::placeholder,
+        [data-testid="stTimeInput"] input::placeholder,
+        [data-testid="stTextArea"] textarea::placeholder,
+        [data-testid="stSelectbox"] input::placeholder,
+        [data-testid="stMultiSelect"] input::placeholder {
+            color: #AEBBD0 !important;
+            -webkit-text-fill-color: #AEBBD0 !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stTextInput"] input:disabled,
+        [data-testid="stNumberInput"] input:disabled,
+        [data-testid="stDateInput"] input:disabled,
+        [data-testid="stTimeInput"] input:disabled,
+        [data-testid="stTextArea"] textarea:disabled {
+            background: #17233A !important;
+            color: #CAD5E8 !important;
+            -webkit-text-fill-color: #CAD5E8 !important;
+            opacity: .88 !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
