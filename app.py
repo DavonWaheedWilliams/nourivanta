@@ -1563,7 +1563,6 @@ def inject_css() -> None:
             background: linear-gradient(145deg, rgba(28,35,65,.98), rgba(15,29,48,.97)) !important;
             border-color: rgba(132,145,255,.24) !important;
         }
-        .nv-dashboard-ring { background: #222B42 !important; }
         .nv-dashboard-ring:before,
         .nv-score-ring:before {
             background: linear-gradient(145deg, #151E33, #0E1729) !important;
@@ -2237,7 +2236,7 @@ def circular_metric_card(
 ) -> None:
     safe_pct = max(0.0, min(100.0, float(pct)))
     angle = safe_pct * 3.6
-    track = "#E8EBF5"
+    track = "#222B42"
     if safe_pct <= 0:
         ring_background = track
         ring_shadow = "inset 0 0 0 1px rgba(99,102,241,.05)"
