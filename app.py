@@ -2009,12 +2009,12 @@ def inject_css() -> None:
             line-height: 1.35 !important;
         }
 
-        /* Dropdown arrow area matches the width of number stepper buttons. */
+        /* Dropdown arrow area matches the wider number stepper buttons. */
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-            width: 2.65rem !important;
-            min-width: 2.65rem !important;
-            max-width: 2.65rem !important;
+            width: 3.10rem !important;
+            min-width: 3.10rem !important;
+            max-width: 3.10rem !important;
             height: 100% !important;
             min-height: 100% !important;
             padding: 0 !important;
@@ -2022,7 +2022,7 @@ def inject_css() -> None:
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            flex: 0 0 2.65rem !important;
+            flex: 0 0 3.10rem !important;
             box-sizing: border-box !important;
             background: #1B2943 !important;
             background-color: #1B2943 !important;
@@ -2042,8 +2042,8 @@ def inject_css() -> None:
             height: 100% !important;
             min-height: var(--nv-control-height) !important;
             max-height: var(--nv-control-height) !important;
-            width: 2.65rem !important;
-            min-width: 2.65rem !important;
+            width: 3.10rem !important;
+            min-width: 3.10rem !important;
             padding: 0 !important;
             margin: 0 !important;
             border-radius: 0 !important;
@@ -2117,15 +2117,15 @@ def inject_css() -> None:
         @media (max-width: 600px) {
             :root { --nv-control-height: 3.05rem; }
             [data-testid="stNumberInput"] button {
-                width: 2.55rem !important;
-                min-width: 2.55rem !important;
+                width: 3.15rem !important;
+                min-width: 3.15rem !important;
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-                width: 2.55rem !important;
-                min-width: 2.55rem !important;
-                max-width: 2.55rem !important;
-                flex-basis: 2.55rem !important;
+                width: 3.15rem !important;
+                min-width: 3.15rem !important;
+                max-width: 3.15rem !important;
+                flex-basis: 3.15rem !important;
             }
         }
 
