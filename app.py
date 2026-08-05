@@ -2091,13 +2091,29 @@ def inject_css() -> None:
             color: #FFFFFF !important;
         }
 
+        [data-testid="stNumberInput"] button {
+            position: relative !important;
+        }
+
         [data-testid="stNumberInput"] button:focus,
         [data-testid="stNumberInput"] button:focus-visible {
             background: #223552 !important;
             background-color: #223552 !important;
             color: #FFFFFF !important;
-            box-shadow: inset 0 0 0 1px #9A8CFF !important;
+            box-shadow: none !important;
             outline: none !important;
+        }
+
+        /* Keep the purple keyboard/focus indicator fully inside the step button. */
+        [data-testid="stNumberInput"] button:focus::after,
+        [data-testid="stNumberInput"] button:focus-visible::after {
+            content: "" !important;
+            position: absolute !important;
+            inset: 3px !important;
+            border: 1px solid #9A8CFF !important;
+            border-radius: calc(var(--nv-control-radius) - 4px) !important;
+            pointer-events: none !important;
+            box-sizing: border-box !important;
         }
 
         /* Calendar, clock and reveal-password buttons also remain vertically centered. */
