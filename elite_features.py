@@ -1057,6 +1057,250 @@ def _body_part_lookup(exercise_name: str, library: dict[str, list[str]]) -> str:
     return "Custom"
 
 
+def _exercise_equipment_tags(exercise_name: str, body_part: str = "") -> set[str]:
+    name = exercise_name.lower()
+    part = body_part.lower()
+    tags: set[str] = set()
+
+    if any(token in name for token in ["dumbbell", "goblet", "arnold", "farmer's", "suitcase"]):
+        tags.add("Dumbbells")
+    if any(token in name for token in ["barbell", "deadlift", "back squat", "front squat", "good morning", "power clean", "snatch", "hip thrust", "close-grip bench"]):
+        tags.add("Barbell and rack")
+    if any(token in name for token in ["cable", "pulldown", "pushdown", "face pull", "pallof"]):
+        tags.add("Cable station")
+    if any(token in name for token in ["machine", "pec deck", "leg press", "hack squat", "leg extension", "leg curl", "calf raise"]):
+        tags.add("Machines")
+    if any(token in name for token in ["kettlebell", "turkish get-up"]):
+        tags.add("Kettlebells")
+    if any(token in name for token in ["band", "clamshell"]):
+        tags.add("Resistance bands")
+    if any(token in name for token in ["treadmill", "stationary bike", "elliptical", "stair climber", "rowing machine"]):
+        tags.add("Cardio equipment")
+
+    bodyweight_tokens = [
+        "push-up", "pull-up", "chin-up", "dip", "plank", "crunch", "sit-up",
+        "leg raise", "knee raise", "russian twist", "dead bug", "bird dog",
+        "mountain climber", "burpee", "bear crawl", "superman", "wall sit",
+        "walking", "running", "hiking", "jump rope", "stretch", "yoga",
+        "breathing", "mobility", "foam rolling", "child's pose", "cat-cow",
+        "frog pump", "donkey kick", "glute bridge", "inverted row", "dead hang",
+    ]
+    if any(token in name for token in bodyweight_tokens) or part in {"core", "mobility and recovery", "sports"}:
+        tags.add("Bodyweight")
+
+    if not tags:
+        if part in {"biceps", "triceps", "forearms and grip"}:
+            tags.update({"Dumbbells", "Barbell and rack", "Cable station"})
+        elif part in {"chest", "back", "shoulders", "quadriceps", "hamstrings", "glutes", "calves"}:
+            tags.update({"Dumbbells", "Barbell and rack", "Machines"})
+        elif part == "cardio":
+            tags.update({"Bodyweight", "Cardio equipment"})
+        else:
+            tags.add("Bodyweight")
+    return tags
+
+
+def _smart_training_split(days_per_week: int) -> list[tuple[str, list[str]]]:
+    push = ["Chest", "Shoulders", "Triceps"]
+    pull = ["Back", "Biceps", "Forearms and Grip"]
+    legs = ["Quadriceps", "Hamstrings", "Glutes", "Calves", "Core"]
+    upper = ["Chest", "Back", "Shoulders", "Biceps", "Triceps"]
+    lower = ["Quadriceps", "Hamstrings", "Glutes", "Calves", "Core"]
+    full = ["Chest", "Back", "Shoulders", "Quadriceps", "Hamstrings", "Glutes", "Core"]
+    splits: dict[int, list[tuple[str, list[str]]]] = {
+        1: [("Full Body", full)],
+        2: [("Upper Body", upper), ("Lower Body", lower)],
+        3: [("Push", push), ("Pull", pull), ("Legs", legs)],
+        4: [("Upper A", upper), ("Lower A", lower), ("Upper B", upper), ("Lower B", lower)],
+        5: [("Push", push), ("Pull", pull), ("Legs", legs), ("Upper", upper), ("Lower", lower)],
+        6: [("Push A", push), ("Pull A", pull), ("Legs A", legs), ("Push B", push), ("Pull B", pull), ("Legs B", legs)],
+        7: [("Push A", push), ("Pull A", pull), ("Legs A", legs), ("Push B", push), ("Pull B", pull), ("Legs B", legs), ("Mobility", ["Mobility and Recovery", "Core"])],
+    }
+    return splits[max(1, min(7, int(days_per_week)))]
+
+
+def _goal_prescription(goal: str, experience: str) -> dict[str, int]:
+    prescriptions = {
+        "Strength": {"sets": 4, "reps_min": 4, "reps_max": 6, "rest": 180},
+        "Muscle gain": {"sets": 3, "reps_min": 8, "reps_max": 12, "rest": 90},
+        "Fat loss": {"sets": 3, "reps_min": 10, "reps_max": 15, "rest": 60},
+        "Endurance": {"sets": 3, "reps_min": 15, "reps_max": 20, "rest": 45},
+        "Mobility": {"sets": 2, "reps_min": 8, "reps_max": 12, "rest": 30},
+        "General fitness": {"sets": 3, "reps_min": 8, "reps_max": 12, "rest": 75},
+    }
+    result = dict(prescriptions.get(goal, prescriptions["General fitness"]))
+    if experience == "Beginner":
+        result["sets"] = max(2, result["sets"] - 1)
+    elif experience == "Advanced" and goal in {"Strength", "Muscle gain"}:
+        result["sets"] += 1
+    return result
+
+
+def _build_equipment_aware_plan(
+    library: dict[str, list[str]],
+    goal: str,
+    days_per_week: int,
+    session_minutes: int,
+    experience: str,
+    equipment: list[str],
+    avoid_text: str,
+) -> list[dict[str, Any]]:
+    selected_equipment = set(equipment or ["Bodyweight"])
+    avoid_tokens = [token.strip().lower() for token in avoid_text.split(",") if token.strip()]
+    prescription = _goal_prescription(goal, experience)
+    target_exercises = max(3, min(8, round(int(session_minutes) / 10)))
+    rows: list[dict[str, Any]] = []
+
+    for day_index, (day_name, body_parts) in enumerate(_smart_training_split(days_per_week), start=1):
+        candidates_by_part: dict[str, list[str]] = {}
+        for part in body_parts:
+            candidates = []
+            for exercise_name in library.get(part, []):
+                if any(token in exercise_name.lower() for token in avoid_tokens):
+                    continue
+                tags = _exercise_equipment_tags(exercise_name, part)
+                if tags & selected_equipment:
+                    candidates.append(exercise_name)
+            if candidates:
+                candidates_by_part[part] = candidates
+
+        selected: list[tuple[str, str]] = []
+        part_cursor = 0
+        while len(selected) < target_exercises and candidates_by_part:
+            active_parts = list(candidates_by_part)
+            part = active_parts[part_cursor % len(active_parts)]
+            options = candidates_by_part[part]
+            offset = (day_index - 1 + len(selected) // max(1, len(active_parts))) % len(options)
+            exercise_name = options[offset]
+            if exercise_name not in {name for _, name in selected}:
+                selected.append((part, exercise_name))
+            elif len(options) > 1:
+                for candidate in options:
+                    if candidate not in {name for _, name in selected}:
+                        selected.append((part, candidate))
+                        break
+            part_cursor += 1
+            if part_cursor > target_exercises * max(2, len(active_parts)):
+                break
+
+        for order_index, (part, exercise_name) in enumerate(selected, start=1):
+            equipment_label = ", ".join(sorted(_exercise_equipment_tags(exercise_name, part) & selected_equipment)) or "Available equipment"
+            rows.append({
+                "day_name": day_name,
+                "order_index": order_index,
+                "body_part": part,
+                "exercise_name": exercise_name,
+                "sets": prescription["sets"],
+                "reps_min": prescription["reps_min"],
+                "reps_max": prescription["reps_max"],
+                "target_weight_lb": 0.0,
+                "rest_seconds": prescription["rest"],
+                "superset_group": "",
+                "set_style": "Standard",
+                "notes": f"Equipment: {equipment_label}",
+            })
+    return rows
+
+
+def _progression_target(
+    history: list[Any],
+    reps_min: int,
+    reps_max: int,
+    body_part: str,
+    fallback_weight: float = 0.0,
+) -> dict[str, Any]:
+    completed = [row for row in history if int(getattr(row, "reps", 0) or 0) > 0]
+    if not completed:
+        return {
+            "weight": float(fallback_weight),
+            "reps": int(reps_min),
+            "message": "No completed history yet. Start with the saved program target and build from there.",
+        }
+
+    weighted = [row for row in completed if float(getattr(row, "weight_lb", 0) or 0) > 0]
+    if weighted:
+        latest = weighted[-1]
+        latest_weight = float(latest.weight_lb)
+        latest_reps = int(latest.reps)
+        lower_body_parts = {"Quadriceps", "Hamstrings", "Glutes", "Calves", "Full Body"}
+        increment = 10.0 if body_part in lower_body_parts and latest_weight >= 50 else 5.0
+        if latest_reps >= int(reps_max):
+            next_weight = latest_weight + increment
+            return {
+                "weight": next_weight,
+                "reps": int(reps_min),
+                "message": f"Increase to {next_weight:g} lb and restart at {int(reps_min)} reps.",
+            }
+        next_reps = min(int(reps_max), max(int(reps_min), latest_reps + 1))
+        return {
+            "weight": latest_weight,
+            "reps": next_reps,
+            "message": f"Keep {latest_weight:g} lb and target {next_reps} reps before adding weight.",
+        }
+
+    latest_reps = int(completed[-1].reps)
+    if latest_reps >= int(reps_max):
+        return {
+            "weight": 0.0,
+            "reps": int(reps_min),
+            "message": f"Use a slightly harder variation and restart near {int(reps_min)} reps.",
+        }
+    next_reps = min(int(reps_max), max(int(reps_min), latest_reps + 1))
+    return {
+        "weight": 0.0,
+        "reps": next_reps,
+        "message": f"Add one repetition and target {next_reps} reps next time.",
+    }
+
+
+def _normalize_wearable_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    normalized_names = {
+        "".join(ch for ch in str(column).lower() if ch.isalnum()): column
+        for column in df.columns
+    }
+
+    def find_column(*aliases: str) -> str | None:
+        for alias in aliases:
+            key = "".join(ch for ch in alias.lower() if ch.isalnum())
+            if key in normalized_names:
+                return normalized_names[key]
+        return None
+
+    date_col = find_column("date", "metric_date", "day", "start_date", "startdate", "datetime", "timestamp")
+    if not date_col:
+        return pd.DataFrame(), "A date column was not found."
+
+    source_col = find_column("source", "device", "platform", "provider")
+    sleep_hours_col = find_column("sleep_hours", "sleephours", "total_sleep_hours", "asleep_hours")
+    sleep_minutes_col = find_column("sleep_minutes", "sleepdurationminutes", "total_sleep_minutes", "asleep_minutes")
+    quality_col = find_column("sleep_quality", "sleepquality", "sleep_score", "sleepscore", "quality")
+    steps_col = find_column("steps", "step_count", "stepcount", "totalsteps")
+    resting_hr_col = find_column("resting_hr", "restingheartrate", "resting_heart_rate", "rhr")
+    hrv_col = find_column("hrv_ms", "hrv", "heartratevariability", "rmssd")
+    active_cal_col = find_column("active_calories", "activecalories", "active_energy", "activeenergyburned")
+
+    rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        parsed_date = pd.to_datetime(row.get(date_col), errors="coerce")
+        if pd.isna(parsed_date):
+            continue
+        sleep_hours = _float(row.get(sleep_hours_col)) if sleep_hours_col else 0.0
+        if not sleep_hours and sleep_minutes_col:
+            sleep_hours = _float(row.get(sleep_minutes_col)) / 60.0
+        rows.append({
+            "date": parsed_date.date(),
+            "source": str(row.get(source_col) or "CSV import") if source_col else "CSV import",
+            "sleep_hours": round(sleep_hours, 2),
+            "sleep_quality": max(1, min(10, int(round(_float(row.get(quality_col), 5))))) if quality_col else 5,
+            "steps": max(0, int(round(_float(row.get(steps_col))))) if steps_col else 0,
+            "resting_hr": max(0.0, _float(row.get(resting_hr_col))) if resting_hr_col else 0.0,
+            "hrv_ms": max(0.0, _float(row.get(hrv_col))) if hrv_col else 0.0,
+            "active_calories": max(0.0, _float(row.get(active_cal_col))) if active_cal_col else 0.0,
+        })
+    note = "Columns were matched automatically. Review the preview before importing."
+    return pd.DataFrame(rows), note
+
+
 def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
     models = ctx["models"]
     SessionLocal = ctx["SessionLocal"]
@@ -1072,6 +1316,87 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
     builder_tab, overload_tab, recovery_tab = st.tabs(["Program", "Progress & PRs", "Recovery"])
 
     with builder_tab:
+        generated_key = f"elite_generated_program_{user.id}"
+        with st.expander("Smart equipment-aware program generator", expanded=False):
+            st.caption("Build a structured plan from your goal, schedule, experience, and available equipment. You can still edit every exercise afterward.")
+            with st.form("elite_smart_program_generator"):
+                smart_name = st.text_input("Generated program name", value="My Smart Program")
+                c1, c2, c3 = st.columns(3)
+                smart_goal = c1.selectbox("Training goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"], key="smart_goal")
+                smart_days = c2.number_input("Training days per week", min_value=1, max_value=7, value=3, key="smart_days")
+                smart_minutes = c3.selectbox("Minutes per workout", [30, 45, 60, 75], index=2, key="smart_minutes")
+                c4, c5 = st.columns(2)
+                smart_experience = c4.selectbox("Experience", ["Beginner", "Intermediate", "Advanced"], index=1)
+                smart_equipment = c5.multiselect(
+                    "Available equipment",
+                    ["Bodyweight", "Dumbbells", "Barbell and rack", "Cable station", "Machines", "Kettlebells", "Resistance bands", "Cardio equipment"],
+                    default=["Bodyweight", "Dumbbells"],
+                )
+                smart_avoid = st.text_input("Exercises to avoid", placeholder="Separate names or keywords with commas")
+                generate_program = st.form_submit_button("Generate program preview", type="primary", width="stretch")
+            if generate_program:
+                generated_rows = _build_equipment_aware_plan(
+                    library, smart_goal, int(smart_days), int(smart_minutes), smart_experience, smart_equipment, smart_avoid
+                )
+                st.session_state[generated_key] = {
+                    "name": smart_name.strip() or "My Smart Program",
+                    "goal": smart_goal,
+                    "days_per_week": int(smart_days),
+                    "notes": f"Equipment-aware plan · {smart_experience} · {int(smart_minutes)} minutes",
+                    "rows": generated_rows,
+                }
+
+            generated = st.session_state.get(generated_key)
+            if generated:
+                preview_rows = generated.get("rows") or []
+                if preview_rows:
+                    st.dataframe(
+                        pd.DataFrame([{
+                            "Day": row["day_name"],
+                            "Exercise": row["exercise_name"],
+                            "Body part": row["body_part"],
+                            "Sets": row["sets"],
+                            "Rep range": f"{row['reps_min']}-{row['reps_max']}",
+                            "Rest": row["rest_seconds"],
+                            "Equipment": str(row.get("notes", "")).replace("Equipment: ", ""),
+                        } for row in preview_rows]),
+                        width="stretch",
+                        hide_index=True,
+                    )
+                    if st.button("Save generated program", type="primary", width="stretch", key="save_generated_program"):
+                        with SessionLocal() as session:
+                            program_row = models.WorkoutProgram(
+                                user_id=user.id,
+                                name=str(generated["name"]),
+                                goal=str(generated["goal"]),
+                                days_per_week=int(generated["days_per_week"]),
+                                notes=str(generated.get("notes") or ""),
+                            )
+                            session.add(program_row)
+                            session.flush()
+                            for row in preview_rows:
+                                session.add(models.WorkoutProgramExercise(
+                                    program_id=program_row.id,
+                                    day_name=str(row["day_name"]),
+                                    order_index=int(row["order_index"]),
+                                    body_part=str(row["body_part"]),
+                                    exercise_name=str(row["exercise_name"]),
+                                    sets=int(row["sets"]),
+                                    reps_min=int(row["reps_min"]),
+                                    reps_max=int(row["reps_max"]),
+                                    target_weight_lb=float(row.get("target_weight_lb") or 0),
+                                    rest_seconds=int(row["rest_seconds"]),
+                                    superset_group=str(row.get("superset_group") or ""),
+                                    set_style=str(row.get("set_style") or "Standard"),
+                                    notes=str(row.get("notes") or ""),
+                                ))
+                            session.commit()
+                        st.session_state.pop(generated_key, None)
+                        st.success("Equipment-aware program saved. You can edit or add exercises with the existing Program Builder controls.")
+                        st.rerun()
+                else:
+                    st.warning("No exercises matched the selected equipment. Add another equipment option or remove an avoid keyword.")
+
         with st.form("elite_program_create"):
             name = st.text_input("Program name", value="My Elite Program")
             c1, c2 = st.columns(2)
@@ -1142,9 +1467,24 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     "Group": x.superset_group,
                     "Set style": x.set_style,
                 } for x in planned]), width="stretch", hide_index=True)
+                demo_exercise = st.selectbox(
+                    "Exercise demonstration",
+                    sorted({x.exercise_name for x in planned}),
+                    key=f"program_demo_{program.id}",
+                )
+                st.link_button(
+                    "Open exercise demonstration search",
+                    "https://www.youtube.com/results?search_query=" + quote_plus(demo_exercise + " exercise form"),
+                )
                 days = sorted({x.day_name for x in planned})
                 log_day = st.selectbox("Program day to start", days)
                 workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY", key="program_workout_date")
+                smart_progression = st.checkbox(
+                    "Use smart progression from completed workout history",
+                    value=True,
+                    key=f"smart_progression_{program.id}_{log_day}",
+                    help="Planned weights and repetitions are adjusted from your latest completed sets. Turn this off to use the saved program targets exactly.",
+                )
                 if st.button("Create workout session from this program day", type="primary", width="stretch"):
                     day_exercises = [x for x in planned if x.day_name == log_day]
                     with SessionLocal() as session:
@@ -1155,22 +1495,48 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                             category=program.goal,
                             duration_min=0,
                             calories_burned=0,
-                            notes="Created from Elite Program Builder",
+                            notes="Created from Elite Program Builder with smart progression" if smart_progression else "Created from Elite Program Builder",
                         )
                         session.add(workout)
                         session.flush()
+                        progression_notes: list[str] = []
                         for ex in day_exercises:
+                            target_reps = int(ex.reps_min)
+                            target_weight_value = float(ex.target_weight_lb or 0)
+                            if smart_progression:
+                                exercise_history = session.scalars(
+                                    select(ExerciseSet)
+                                    .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
+                                    .where(
+                                        WorkoutSession.user_id == user.id,
+                                        ExerciseSet.exercise_name == ex.exercise_name,
+                                        ExerciseSet.completed.is_(True),
+                                    )
+                                    .order_by(WorkoutSession.workout_date.asc(), ExerciseSet.id.asc())
+                                ).all()
+                                target = _progression_target(
+                                    list(exercise_history),
+                                    int(ex.reps_min),
+                                    int(ex.reps_max),
+                                    str(ex.body_part),
+                                    float(ex.target_weight_lb or 0),
+                                )
+                                target_reps = int(target["reps"])
+                                target_weight_value = float(target["weight"])
+                                progression_notes.append(f"{ex.exercise_name}: {target['message']}")
                             for set_number in range(1, ex.sets + 1):
                                 session.add(ExerciseSet(
                                     session_id=workout.id,
                                     exercise_name=ex.exercise_name,
                                     set_number=set_number,
-                                    reps=ex.reps_min,
-                                    weight_lb=ex.target_weight_lb,
+                                    reps=target_reps,
+                                    weight_lb=target_weight_value,
                                     completed=False,
                                 ))
+                        if progression_notes:
+                            workout.notes = (workout.notes + "\n" + "\n".join(progression_notes)).strip()
                         session.commit()
-                    st.success("Workout session created with planned sets.")
+                    st.success("Workout session created with smart targets." if smart_progression else "Workout session created with saved program targets.")
 
         st.subheader("Rest timer")
         timer_seconds = st.number_input("Rest duration in seconds", min_value=10, max_value=600, value=90, step=5, key="elite_rest_seconds")
@@ -1239,12 +1605,8 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     (x.weight_lb * (1 + x.reps / 30) for x in weighted_history),
                     default=0,
                 )
-                if latest_progress_set.weight_lb > 0 and latest_progress_set.reps >= 12:
-                    recommendation = f"Try {latest_progress_set.weight_lb + 5:g} lb for {max(6, latest_progress_set.reps - 3)} to {latest_progress_set.reps - 1} reps."
-                elif latest_progress_set.weight_lb > 0:
-                    recommendation = f"Keep {latest_progress_set.weight_lb:g} lb and target {latest_progress_set.reps + 1} reps before adding weight."
-                else:
-                    recommendation = f"Add one repetition or a slightly harder variation of {exercise}."
+                default_target = _progression_target(history, 8, 12, exercise_part, float(latest_progress_set.weight_lb or 0))
+                recommendation = str(default_target["message"])
                 st.markdown(
                     f"""
                     <div class="nv-elite-grid">
@@ -1256,6 +1618,65 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     """,
                     unsafe_allow_html=True,
                 )
+
+                with SessionLocal() as session:
+                    program_matches = session.execute(
+                        select(models.WorkoutProgramExercise, models.WorkoutProgram)
+                        .join(models.WorkoutProgram, models.WorkoutProgramExercise.program_id == models.WorkoutProgram.id)
+                        .where(
+                            models.WorkoutProgram.user_id == user.id,
+                            models.WorkoutProgramExercise.exercise_name == exercise,
+                        )
+                        .order_by(models.WorkoutProgram.name, models.WorkoutProgramExercise.day_name)
+                    ).all()
+                if program_matches:
+                    match_options = [
+                        {
+                            "exercise_id": exercise_row.id,
+                            "program": program_row.name,
+                            "day": exercise_row.day_name,
+                            "reps_min": exercise_row.reps_min,
+                            "reps_max": exercise_row.reps_max,
+                            "weight": exercise_row.target_weight_lb,
+                            "body_part": exercise_row.body_part,
+                        }
+                        for exercise_row, program_row in program_matches
+                    ]
+                    with st.expander("Apply the next target to a saved program", expanded=False):
+                        selected_match = st.selectbox(
+                            "Program exercise",
+                            match_options,
+                            format_func=lambda option: f"{option['program']} · {option['day']} · {option['reps_min']}-{option['reps_max']} reps",
+                            key=f"progression_program_{exercise}",
+                        )
+                        program_target = _progression_target(
+                            history,
+                            int(selected_match["reps_min"]),
+                            int(selected_match["reps_max"]),
+                            str(selected_match["body_part"]),
+                            float(selected_match["weight"] or 0),
+                        )
+                        st.info(str(program_target["message"]))
+                        if st.button("Apply target to this program exercise", type="primary", key=f"apply_progression_{exercise}"):
+                            with SessionLocal() as session:
+                                exercise_row = session.scalar(
+                                    select(models.WorkoutProgramExercise)
+                                    .join(models.WorkoutProgram, models.WorkoutProgramExercise.program_id == models.WorkoutProgram.id)
+                                    .where(
+                                        models.WorkoutProgramExercise.id == int(selected_match["exercise_id"]),
+                                        models.WorkoutProgram.user_id == user.id,
+                                    )
+                                )
+                                if exercise_row:
+                                    exercise_row.target_weight_lb = float(program_target["weight"])
+                                    exercise_row.reps_min = int(program_target["reps"])
+                                    exercise_row.reps_max = max(int(exercise_row.reps_max), int(program_target["reps"]))
+                                    smart_note = f"Smart target: {program_target['message']}"
+                                    if smart_note not in (exercise_row.notes or ""):
+                                        exercise_row.notes = ((exercise_row.notes or "") + "\n" + smart_note).strip()
+                                    session.commit()
+                            st.success("Program target updated. Future sessions can use this target automatically.")
+                            st.rerun()
 
                 if weighted_history:
                     weighted_by_date: dict[date, dict[str, Any]] = {}
@@ -1884,33 +2305,70 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
                     session.add(models.WearableMetric(user_id=user.id, metric_date=metric_date, source=source, sleep_hours=sleep, sleep_quality=quality, steps=int(steps), resting_hr=resting_hr, hrv_ms=hrv, active_calories=active_calories))
                 session.commit()
             st.success("Wearable metrics saved.")
+        template_df = pd.DataFrame([{
+            "date": local_today().isoformat(),
+            "source": "Health platform",
+            "sleep_hours": 7.5,
+            "sleep_quality": 7,
+            "steps": 8000,
+            "resting_hr": 62,
+            "hrv_ms": 42,
+            "active_calories": 450,
+        }])
+        st.download_button(
+            "Download wearable CSV template",
+            data=template_df.to_csv(index=False).encode("utf-8"),
+            file_name="nourivanta_wearable_template.csv",
+            mime="text/csv",
+        )
         upload = st.file_uploader("Import wearable CSV", type=["csv"], key="wearable_csv")
         if upload is not None:
             try:
-                df = pd.read_csv(upload)
-                st.dataframe(df.head(20), width="stretch")
-                st.caption("Supported columns: date, source, sleep_hours, sleep_quality, steps, resting_hr, hrv_ms, active_calories")
-                if st.button("Import displayed CSV rows"):
-                    imported = 0
-                    with SessionLocal() as session:
-                        for _, row in df.iterrows():
-                            parsed_date = pd.to_datetime(row.get("date"), errors="coerce")
-                            if pd.isna(parsed_date):
-                                continue
-                            session.add(models.WearableMetric(
-                                user_id=user.id,
-                                metric_date=parsed_date.date(),
-                                source=str(row.get("source") or "CSV import"),
-                                sleep_hours=_float(row.get("sleep_hours")),
-                                sleep_quality=max(1, min(10, int(_float(row.get("sleep_quality"), 5)))),
-                                steps=int(_float(row.get("steps"))),
-                                resting_hr=_float(row.get("resting_hr")),
-                                hrv_ms=_float(row.get("hrv_ms")),
-                                active_calories=_float(row.get("active_calories")),
-                            ))
-                            imported += 1
-                        session.commit()
-                    st.success(f"Imported {imported} wearable records.")
+                raw_df = pd.read_csv(upload)
+                normalized_df, import_note = _normalize_wearable_dataframe(raw_df)
+                if normalized_df.empty:
+                    st.error(import_note)
+                else:
+                    st.caption(import_note)
+                    st.dataframe(normalized_df.head(30), width="stretch", hide_index=True)
+                    st.caption("Common Apple Health, Health Connect, Garmin, Fitbit, and generic export column names are matched automatically.")
+                    if st.button("Import displayed wearable rows", type="primary"):
+                        imported = 0
+                        updated = 0
+                        with SessionLocal() as session:
+                            for _, row in normalized_df.iterrows():
+                                metric_date_value = row.get("date")
+                                source_value = str(row.get("source") or "CSV import")
+                                existing = session.scalar(
+                                    select(models.WearableMetric).where(
+                                        models.WearableMetric.user_id == user.id,
+                                        models.WearableMetric.metric_date == metric_date_value,
+                                        models.WearableMetric.source == source_value,
+                                    )
+                                )
+                                if existing:
+                                    existing.sleep_hours = _float(row.get("sleep_hours"))
+                                    existing.sleep_quality = max(1, min(10, int(_float(row.get("sleep_quality"), 5))))
+                                    existing.steps = int(_float(row.get("steps")))
+                                    existing.resting_hr = _float(row.get("resting_hr"))
+                                    existing.hrv_ms = _float(row.get("hrv_ms"))
+                                    existing.active_calories = _float(row.get("active_calories"))
+                                    updated += 1
+                                else:
+                                    session.add(models.WearableMetric(
+                                        user_id=user.id,
+                                        metric_date=metric_date_value,
+                                        source=source_value,
+                                        sleep_hours=_float(row.get("sleep_hours")),
+                                        sleep_quality=max(1, min(10, int(_float(row.get("sleep_quality"), 5)))),
+                                        steps=int(_float(row.get("steps"))),
+                                        resting_hr=_float(row.get("resting_hr")),
+                                        hrv_ms=_float(row.get("hrv_ms")),
+                                        active_calories=_float(row.get("active_calories")),
+                                    ))
+                                    imported += 1
+                            session.commit()
+                        st.success(f"Imported {imported} new records and updated {updated} existing records.")
             except Exception as exc:
                 st.error(f"CSV import failed: {exc}")
         with SessionLocal() as session:
