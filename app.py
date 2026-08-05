@@ -2133,10 +2133,10 @@ def inject_css() -> None:
         /* Slightly wider dropdown action area and slightly taller number controls. */
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-            width: 3.35rem !important;
-            min-width: 3.35rem !important;
-            max-width: 3.35rem !important;
-            flex: 0 0 3.35rem !important;
+            width: 3.75rem !important;
+            min-width: 3.75rem !important;
+            max-width: 3.75rem !important;
+            flex: 0 0 3.75rem !important;
         }
 
         [data-testid="stNumberInput"] div[data-baseweb="input"] {
@@ -2173,10 +2173,10 @@ def inject_css() -> None:
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-                width: 3.40rem !important;
-                min-width: 3.40rem !important;
-                max-width: 3.40rem !important;
-                flex: 0 0 3.40rem !important;
+                width: 3.85rem !important;
+                min-width: 3.85rem !important;
+                max-width: 3.85rem !important;
+                flex: 0 0 3.85rem !important;
             }
         }
 
