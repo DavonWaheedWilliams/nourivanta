@@ -2012,9 +2012,9 @@ def inject_css() -> None:
         /* Dropdown arrow area matches the wider number stepper buttons. */
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-            width: 3.10rem !important;
-            min-width: 3.10rem !important;
-            max-width: 3.10rem !important;
+            width: 4.50rem !important;
+            min-width: 4.50rem !important;
+            max-width: 4.50rem !important;
             height: 100% !important;
             min-height: 100% !important;
             padding: 0 !important;
@@ -2022,7 +2022,7 @@ def inject_css() -> None:
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            flex: 0 0 3.10rem !important;
+            flex: 0 0 4.50rem !important;
             box-sizing: border-box !important;
             background: #1B2943 !important;
             background-color: #1B2943 !important;
@@ -2042,8 +2042,8 @@ def inject_css() -> None:
             height: 100% !important;
             min-height: var(--nv-control-height) !important;
             max-height: var(--nv-control-height) !important;
-            width: 3.10rem !important;
-            min-width: 3.10rem !important;
+            width: 4.50rem !important;
+            min-width: 4.50rem !important;
             padding: 0 !important;
             margin: 0 !important;
             border-radius: 0 !important;
@@ -2130,13 +2130,13 @@ def inject_css() -> None:
             justify-content: center !important;
         }
 
-        /* Slightly wider dropdown action area and slightly taller number controls. */
+        /* Dropdown action area set to 0.75 CSS inch and number controls remain unchanged. */
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
         [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-            width: 3.75rem !important;
-            min-width: 3.75rem !important;
-            max-width: 3.75rem !important;
-            flex: 0 0 3.75rem !important;
+            width: 4.50rem !important;
+            min-width: 4.50rem !important;
+            max-width: 4.50rem !important;
+            flex: 0 0 4.50rem !important;
         }
 
         [data-testid="stNumberInput"] div[data-baseweb="input"] {
@@ -2173,10 +2173,10 @@ def inject_css() -> None:
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-                width: 3.85rem !important;
-                min-width: 3.85rem !important;
-                max-width: 3.85rem !important;
-                flex: 0 0 3.85rem !important;
+                width: 4.50rem !important;
+                min-width: 4.50rem !important;
+                max-width: 4.50rem !important;
+                flex: 0 0 4.50rem !important;
             }
         }
 
