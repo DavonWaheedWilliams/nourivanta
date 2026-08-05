@@ -2140,35 +2140,35 @@ def inject_css() -> None:
         }
 
         [data-testid="stNumberInput"] div[data-baseweb="input"] {
-            height: 3.28rem !important;
-            min-height: 3.28rem !important;
-            max-height: 3.28rem !important;
+            height: 3.46rem !important;
+            min-height: 3.46rem !important;
+            max-height: 3.46rem !important;
         }
 
         [data-testid="stNumberInput"] button {
-            min-height: 3.28rem !important;
-            max-height: 3.28rem !important;
+            min-height: 3.46rem !important;
+            max-height: 3.46rem !important;
         }
 
         [data-testid="stNumberInput"] input {
-            line-height: 3.28rem !important;
+            line-height: 3.46rem !important;
         }
 
         @media (max-width: 600px) {
             :root { --nv-control-height: 3.05rem; }
             [data-testid="stNumberInput"] div[data-baseweb="input"] {
-                height: 3.22rem !important;
-                min-height: 3.22rem !important;
-                max-height: 3.22rem !important;
+                height: 3.42rem !important;
+                min-height: 3.42rem !important;
+                max-height: 3.42rem !important;
             }
             [data-testid="stNumberInput"] button {
                 width: 3.15rem !important;
                 min-width: 3.15rem !important;
-                min-height: 3.22rem !important;
-                max-height: 3.22rem !important;
+                min-height: 3.42rem !important;
+                max-height: 3.42rem !important;
             }
             [data-testid="stNumberInput"] input {
-                line-height: 3.22rem !important;
+                line-height: 3.42rem !important;
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
