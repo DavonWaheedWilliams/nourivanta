@@ -2210,9 +2210,11 @@ def inject_css() -> None:
         }
 
         [data-testid="stNumberInput"] button:focus,
-        [data-testid="stNumberInput"] button:focus-visible {
+        [data-testid="stNumberInput"] button:focus-visible,
+        [data-testid="stNumberInput"] button:active {
             outline: none !important;
-            box-shadow: inset 0 0 0 2px #9A8CFF !important;
+            box-shadow: none !important;
+            border-color: transparent !important;
         }
 
         @media (max-width: 600px) {
@@ -2275,6 +2277,27 @@ def inject_css() -> None:
                 max-width: 2.35rem !important;
                 flex: 0 0 2.35rem !important;
             }
+        }
+
+        /* Keep stepper actions working without a purple touch/focus box. */
+        [data-testid="stNumberInput"] button:focus,
+        [data-testid="stNumberInput"] button:focus-visible,
+        [data-testid="stNumberInput"] button:active {
+            outline: none !important;
+            box-shadow: none !important;
+            border: 0 !important;
+        }
+
+        [data-testid="stNumberInput"] button:focus::before,
+        [data-testid="stNumberInput"] button:focus-visible::before,
+        [data-testid="stNumberInput"] button:active::before,
+        [data-testid="stNumberInput"] button:focus::after,
+        [data-testid="stNumberInput"] button:focus-visible::after,
+        [data-testid="stNumberInput"] button:active::after {
+            display: none !important;
+            content: none !important;
+            border: 0 !important;
+            box-shadow: none !important;
         }
 
         </style>
