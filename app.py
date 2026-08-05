@@ -2157,18 +2157,19 @@ def inject_css() -> None:
         @media (max-width: 600px) {
             :root { --nv-control-height: 3.05rem; }
             [data-testid="stNumberInput"] div[data-baseweb="input"] {
-                height: 3.42rem !important;
-                min-height: 3.42rem !important;
-                max-height: 3.42rem !important;
+                height: 3.78rem !important;
+                min-height: 3.78rem !important;
+                max-height: 3.78rem !important;
             }
             [data-testid="stNumberInput"] button {
                 width: 3.15rem !important;
                 min-width: 3.15rem !important;
-                min-height: 3.42rem !important;
-                max-height: 3.42rem !important;
+                height: 3.78rem !important;
+                min-height: 3.78rem !important;
+                max-height: 3.78rem !important;
             }
             [data-testid="stNumberInput"] input {
-                line-height: 3.42rem !important;
+                line-height: 3.78rem !important;
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
@@ -2176,6 +2177,57 @@ def inject_css() -> None:
                 min-width: 3.40rem !important;
                 max-width: 3.40rem !important;
                 flex: 0 0 3.40rem !important;
+            }
+        }
+
+        /* Final stepper sizing: taller field plus an inset focus ring that cannot be clipped. */
+        [data-testid="stNumberInput"] div[data-baseweb="input"] {
+            height: 3.70rem !important;
+            min-height: 3.70rem !important;
+            max-height: 3.70rem !important;
+        }
+
+        [data-testid="stNumberInput"] div[data-baseweb="base-input"],
+        [data-testid="stNumberInput"] input {
+            height: 100% !important;
+            min-height: 100% !important;
+        }
+
+        [data-testid="stNumberInput"] input {
+            line-height: 3.70rem !important;
+        }
+
+        [data-testid="stNumberInput"] button {
+            height: 3.70rem !important;
+            min-height: 3.70rem !important;
+            max-height: 3.70rem !important;
+        }
+
+        [data-testid="stNumberInput"] button:focus::after,
+        [data-testid="stNumberInput"] button:focus-visible::after {
+            display: none !important;
+            content: none !important;
+        }
+
+        [data-testid="stNumberInput"] button:focus,
+        [data-testid="stNumberInput"] button:focus-visible {
+            outline: none !important;
+            box-shadow: inset 0 0 0 2px #9A8CFF !important;
+        }
+
+        @media (max-width: 600px) {
+            [data-testid="stNumberInput"] div[data-baseweb="input"] {
+                height: 3.78rem !important;
+                min-height: 3.78rem !important;
+                max-height: 3.78rem !important;
+            }
+            [data-testid="stNumberInput"] button {
+                height: 3.78rem !important;
+                min-height: 3.78rem !important;
+                max-height: 3.78rem !important;
+            }
+            [data-testid="stNumberInput"] input {
+                line-height: 3.78rem !important;
             }
         }
 
