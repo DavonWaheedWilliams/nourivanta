@@ -2254,7 +2254,7 @@ def inject_css() -> None:
             display: block !important;
             margin: 0 !important;
             position: relative !important;
-            top: -4px !important;
+            top: -7px !important;
             transform: none !important;
         }
 
