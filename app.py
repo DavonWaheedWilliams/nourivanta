@@ -2249,10 +2249,21 @@ def inject_css() -> None:
         }
 
         [data-testid="stNumberInput"] button svg {
-            width: 1rem !important;
-            height: 1rem !important;
+            width: .78rem !important;
+            height: .78rem !important;
             display: block !important;
-            margin: auto !important;
+            margin: 0 !important;
+            position: relative !important;
+            top: -1px !important;
+            transform: none !important;
+        }
+
+        [data-testid="stNumberInput"] button,
+        [data-testid="stNumberInput"] button:first-of-type,
+        [data-testid="stNumberInput"] button:last-of-type {
+            display: grid !important;
+            place-items: center !important;
+            line-height: 0 !important;
         }
 
         @media (max-width: 600px) {
