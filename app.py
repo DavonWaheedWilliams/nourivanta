@@ -2231,6 +2231,41 @@ def inject_css() -> None:
             }
         }
 
+        /* Compact number steppers: keep minus and plus together at the right edge. */
+        [data-testid="stNumberInput"] button,
+        [data-testid="stNumberInput"] button:first-of-type,
+        [data-testid="stNumberInput"] button:last-of-type {
+            width: 2.30rem !important;
+            min-width: 2.30rem !important;
+            max-width: 2.30rem !important;
+            flex: 0 0 2.30rem !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 1rem !important;
+            line-height: 1 !important;
+        }
+
+        [data-testid="stNumberInput"] button svg {
+            width: 1rem !important;
+            height: 1rem !important;
+            display: block !important;
+            margin: auto !important;
+        }
+
+        @media (max-width: 600px) {
+            [data-testid="stNumberInput"] button,
+            [data-testid="stNumberInput"] button:first-of-type,
+            [data-testid="stNumberInput"] button:last-of-type {
+                width: 2.35rem !important;
+                min-width: 2.35rem !important;
+                max-width: 2.35rem !important;
+                flex: 0 0 2.35rem !important;
+            }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
