@@ -2114,18 +2114,52 @@ def inject_css() -> None:
             justify-content: center !important;
         }
 
+        /* Slightly wider dropdown action area and slightly taller number controls. */
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
+        [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
+            width: 3.35rem !important;
+            min-width: 3.35rem !important;
+            max-width: 3.35rem !important;
+            flex: 0 0 3.35rem !important;
+        }
+
+        [data-testid="stNumberInput"] div[data-baseweb="input"] {
+            height: 3.28rem !important;
+            min-height: 3.28rem !important;
+            max-height: 3.28rem !important;
+        }
+
+        [data-testid="stNumberInput"] button {
+            min-height: 3.28rem !important;
+            max-height: 3.28rem !important;
+        }
+
+        [data-testid="stNumberInput"] input {
+            line-height: 3.28rem !important;
+        }
+
         @media (max-width: 600px) {
             :root { --nv-control-height: 3.05rem; }
+            [data-testid="stNumberInput"] div[data-baseweb="input"] {
+                height: 3.22rem !important;
+                min-height: 3.22rem !important;
+                max-height: 3.22rem !important;
+            }
             [data-testid="stNumberInput"] button {
                 width: 3.15rem !important;
                 min-width: 3.15rem !important;
+                min-height: 3.22rem !important;
+                max-height: 3.22rem !important;
+            }
+            [data-testid="stNumberInput"] input {
+                line-height: 3.22rem !important;
             }
             [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:last-child,
             [data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div:last-child {
-                width: 3.15rem !important;
-                min-width: 3.15rem !important;
-                max-width: 3.15rem !important;
-                flex-basis: 3.15rem !important;
+                width: 3.40rem !important;
+                min-width: 3.40rem !important;
+                max-width: 3.40rem !important;
+                flex: 0 0 3.40rem !important;
             }
         }
 
