@@ -2809,15 +2809,22 @@ def render_nutrition(user: User) -> None:
         ).all()
 
     c1, c2, c3, c4 = st.columns(4)
-    for col, label, value, target in [
-        (c1, "Calories", totals["calories"], user.calorie_target),
-        (c2, "Protein", totals["protein"], user.protein_target),
-        (c3, "Carbs", totals["carbs"], user.carb_target),
-        (c4, "Fat", totals["fat"], user.fat_target),
+    for col, label, value, target, accent in [
+        (c1, "Calories", totals["calories"], user.calorie_target, "#6C5CE7"),
+        (c2, "Protein", totals["protein"], user.protein_target, "#16B8C4"),
+        (c3, "Carbs", totals["carbs"], user.carb_target, "#F2994A"),
+        (c4, "Fat", totals["fat"], user.fat_target, "#D65DB1"),
     ]:
         with col:
             suffix = "kcal" if label == "Calories" else "g"
-            metric_card(label, f"{value:.0f} {suffix}", f"Target {target} {suffix}", value / max(target, 1) * 100)
+            metric_card(
+                label,
+                f"{value:.0f} {suffix}",
+                f"Target {target} {suffix}",
+                value / max(target, 1) * 100,
+                accent=accent,
+                accent_end=accent,
+            )
 
     add_food, add_water = st.tabs(["Add food", "Add water"])
     with add_food:
