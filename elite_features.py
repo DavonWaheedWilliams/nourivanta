@@ -1408,14 +1408,14 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     "Set style": x.set_style,
                 } for x in planned]), width="stretch", hide_index=True)
 
-                with st.expander("Start workout from this program", expanded=False):
-                    days = sorted({x.day_name for x in planned})
-                    log_day = st.selectbox("Program day to start", days)
+                days = sorted({x.day_name for x in planned})
+                with st.popover("Start workout from this program"):
+                    log_day = st.selectbox("Program day to start", days, key=f"program_start_day_{program.id}")
                     workout_date = st.date_input(
                         "Workout date",
                         value=local_today(),
                         format="MM/DD/YYYY",
-                        key="program_workout_date",
+                        key=f"program_workout_date_{program.id}",
                     )
                     smart_progression = st.checkbox(
                         "Use smart progression from completed workout history",
@@ -1423,7 +1423,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         key=f"smart_progression_{program.id}_{log_day}",
                         help="Planned weights and repetitions are adjusted from your latest completed sets. Turn this off to use the saved program targets exactly.",
                     )
-                    if st.button("Create workout session from this program day", type="primary", width="stretch"):
+                    if st.button("Create workout session", type="primary", width="stretch", key=f"create_program_workout_{program.id}_{log_day}"):
                         day_exercises = [x for x in planned if x.day_name == log_day]
                         with SessionLocal() as session:
                             workout = WorkoutSession(
@@ -1480,112 +1480,115 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
         else:
             st.info("Create a program or use the smart program generator to begin.")
 
-        with st.expander("Create new program", expanded=not bool(programs)):
-            with st.form("elite_program_create"):
-                name = st.text_input("Program name", value="My Elite Program")
-                c1, c2 = st.columns(2)
-                goal = c1.selectbox("Goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"])
-                days_per_week = c2.number_input("Days per week", min_value=1, max_value=7, value=3)
-                notes = st.text_area("Program notes")
-                create = st.form_submit_button("Create program", type="primary", width="stretch")
-            if create:
-                with SessionLocal() as session:
-                    session.add(models.WorkoutProgram(
-                        user_id=user.id,
-                        name=name.strip() or "Program",
-                        goal=goal,
-                        days_per_week=int(days_per_week),
-                        notes=notes.strip(),
-                    ))
-                    session.commit()
-                st.success("Program created.")
-                st.rerun()
+        with st.expander("Create program", expanded=not bool(programs)):
+            manual_create_tab, smart_create_tab = st.tabs(["Manual", "Smart Generator"])
 
-        with st.expander("Smart equipment-aware program generator", expanded=False):
-            st.caption("Build a structured plan from your goal, schedule, experience, and available equipment. You can still edit every exercise afterward.")
-            with st.form("elite_smart_program_generator"):
-                smart_name = st.text_input("Generated program name", value="My Smart Program")
-                c1, c2, c3 = st.columns(3)
-                smart_goal = c1.selectbox("Training goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"], key="smart_goal")
-                smart_days = c2.number_input("Training days per week", min_value=1, max_value=7, value=3, key="smart_days")
-                smart_minutes = c3.selectbox("Minutes per workout", [30, 45, 60, 75], index=2, key="smart_minutes")
-                c4, c5 = st.columns(2)
-                smart_experience = c4.selectbox("Experience", ["Beginner", "Intermediate", "Advanced"], index=1)
-                smart_equipment = c5.multiselect(
-                    "Available equipment",
-                    ["Bodyweight", "Dumbbells", "Barbell and rack", "Cable station", "Machines", "Kettlebells", "Resistance bands", "Cardio equipment"],
-                    default=["Bodyweight", "Dumbbells"],
-                )
-                smart_avoid = st.text_input("Exercises to avoid", placeholder="Separate names or keywords with commas")
-                generate_program = st.form_submit_button("Generate program preview", type="primary", width="stretch")
-            if generate_program:
-                generated_rows = _build_equipment_aware_plan(
-                    library,
-                    smart_goal,
-                    int(smart_days),
-                    int(smart_minutes),
-                    smart_experience,
-                    smart_equipment,
-                    smart_avoid,
-                )
-                st.session_state[generated_key] = {
-                    "name": smart_name.strip() or "My Smart Program",
-                    "goal": smart_goal,
-                    "days_per_week": int(smart_days),
-                    "notes": f"Equipment-aware plan · {smart_experience} · {int(smart_minutes)} minutes",
-                    "rows": generated_rows,
-                }
+            with manual_create_tab:
+                with st.form("elite_program_create"):
+                    name = st.text_input("Program name", value="My Elite Program")
+                    c1, c2 = st.columns(2)
+                    goal = c1.selectbox("Goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"])
+                    days_per_week = c2.number_input("Days per week", min_value=1, max_value=7, value=3)
+                    notes = st.text_area("Program notes")
+                    create = st.form_submit_button("Create program", type="primary", width="stretch")
+                if create:
+                    with SessionLocal() as session:
+                        session.add(models.WorkoutProgram(
+                            user_id=user.id,
+                            name=name.strip() or "Program",
+                            goal=goal,
+                            days_per_week=int(days_per_week),
+                            notes=notes.strip(),
+                        ))
+                        session.commit()
+                    st.success("Program created.")
+                    st.rerun()
 
-            generated = st.session_state.get(generated_key)
-            if generated:
-                preview_rows = generated.get("rows") or []
-                if preview_rows:
-                    st.dataframe(
-                        pd.DataFrame([{
-                            "Day": row["day_name"],
-                            "Exercise": row["exercise_name"],
-                            "Body part": row["body_part"],
-                            "Sets": row["sets"],
-                            "Rep range": f"{row['reps_min']}-{row['reps_max']}",
-                            "Rest": row["rest_seconds"],
-                            "Equipment": str(row.get("notes", "")).replace("Equipment: ", ""),
-                        } for row in preview_rows]),
-                        width="stretch",
-                        hide_index=True,
+            with smart_create_tab:
+                st.caption("Build a structured plan from your goal, schedule, experience, and available equipment. You can still edit every exercise afterward.")
+                with st.form("elite_smart_program_generator"):
+                    smart_name = st.text_input("Generated program name", value="My Smart Program")
+                    c1, c2, c3 = st.columns(3)
+                    smart_goal = c1.selectbox("Training goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"], key="smart_goal")
+                    smart_days = c2.number_input("Training days per week", min_value=1, max_value=7, value=3, key="smart_days")
+                    smart_minutes = c3.selectbox("Minutes per workout", [30, 45, 60, 75], index=2, key="smart_minutes")
+                    c4, c5 = st.columns(2)
+                    smart_experience = c4.selectbox("Experience", ["Beginner", "Intermediate", "Advanced"], index=1)
+                    smart_equipment = c5.multiselect(
+                        "Available equipment",
+                        ["Bodyweight", "Dumbbells", "Barbell and rack", "Cable station", "Machines", "Kettlebells", "Resistance bands", "Cardio equipment"],
+                        default=["Bodyweight", "Dumbbells"],
                     )
-                    if st.button("Save generated program", type="primary", width="stretch", key="save_generated_program"):
-                        with SessionLocal() as session:
-                            program_row = models.WorkoutProgram(
-                                user_id=user.id,
-                                name=str(generated["name"]),
-                                goal=str(generated["goal"]),
-                                days_per_week=int(generated["days_per_week"]),
-                                notes=str(generated.get("notes") or ""),
-                            )
-                            session.add(program_row)
-                            session.flush()
-                            for row in preview_rows:
-                                session.add(models.WorkoutProgramExercise(
-                                    program_id=program_row.id,
-                                    day_name=str(row["day_name"]),
-                                    order_index=int(row["order_index"]),
-                                    body_part=str(row["body_part"]),
-                                    exercise_name=str(row["exercise_name"]),
-                                    sets=int(row["sets"]),
-                                    reps_min=int(row["reps_min"]),
-                                    reps_max=int(row["reps_max"]),
-                                    target_weight_lb=float(row.get("target_weight_lb") or 0),
-                                    rest_seconds=int(row["rest_seconds"]),
-                                    superset_group=str(row.get("superset_group") or ""),
-                                    set_style=str(row.get("set_style") or "Standard"),
-                                    notes=str(row.get("notes") or ""),
-                                ))
-                            session.commit()
-                        st.session_state.pop(generated_key, None)
-                        st.success("Equipment-aware program saved. You can edit or add exercises with the existing Program Builder controls.")
-                        st.rerun()
-                else:
-                    st.warning("No exercises matched the selected equipment. Add another equipment option or remove an avoid keyword.")
+                    smart_avoid = st.text_input("Exercises to avoid", placeholder="Separate names or keywords with commas")
+                    generate_program = st.form_submit_button("Generate program preview", type="primary", width="stretch")
+                if generate_program:
+                    generated_rows = _build_equipment_aware_plan(
+                        library,
+                        smart_goal,
+                        int(smart_days),
+                        int(smart_minutes),
+                        smart_experience,
+                        smart_equipment,
+                        smart_avoid,
+                    )
+                    st.session_state[generated_key] = {
+                        "name": smart_name.strip() or "My Smart Program",
+                        "goal": smart_goal,
+                        "days_per_week": int(smart_days),
+                        "notes": f"Equipment-aware plan · {smart_experience} · {int(smart_minutes)} minutes",
+                        "rows": generated_rows,
+                    }
+
+                generated = st.session_state.get(generated_key)
+                if generated:
+                    preview_rows = generated.get("rows") or []
+                    if preview_rows:
+                        st.dataframe(
+                            pd.DataFrame([{
+                                "Day": row["day_name"],
+                                "Exercise": row["exercise_name"],
+                                "Body part": row["body_part"],
+                                "Sets": row["sets"],
+                                "Rep range": f"{row['reps_min']}-{row['reps_max']}",
+                                "Rest": row["rest_seconds"],
+                                "Equipment": str(row.get("notes", "")).replace("Equipment: ", ""),
+                            } for row in preview_rows]),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                        if st.button("Save generated program", type="primary", width="stretch", key="save_generated_program"):
+                            with SessionLocal() as session:
+                                program_row = models.WorkoutProgram(
+                                    user_id=user.id,
+                                    name=str(generated["name"]),
+                                    goal=str(generated["goal"]),
+                                    days_per_week=int(generated["days_per_week"]),
+                                    notes=str(generated.get("notes") or ""),
+                                )
+                                session.add(program_row)
+                                session.flush()
+                                for row in preview_rows:
+                                    session.add(models.WorkoutProgramExercise(
+                                        program_id=program_row.id,
+                                        day_name=str(row["day_name"]),
+                                        order_index=int(row["order_index"]),
+                                        body_part=str(row["body_part"]),
+                                        exercise_name=str(row["exercise_name"]),
+                                        sets=int(row["sets"]),
+                                        reps_min=int(row["reps_min"]),
+                                        reps_max=int(row["reps_max"]),
+                                        target_weight_lb=float(row.get("target_weight_lb") or 0),
+                                        rest_seconds=int(row["rest_seconds"]),
+                                        superset_group=str(row.get("superset_group") or ""),
+                                        set_style=str(row.get("set_style") or "Standard"),
+                                        notes=str(row.get("notes") or ""),
+                                    ))
+                                session.commit()
+                            st.session_state.pop(generated_key, None)
+                            st.success("Equipment-aware program saved. You can edit or add exercises with the existing Program Builder controls.")
+                            st.rerun()
+                    else:
+                        st.warning("No exercises matched the selected equipment. Add another equipment option or remove an avoid keyword.")
 
         with st.expander("Rest timer", expanded=False):
             timer_seconds = st.number_input("Rest duration in seconds", min_value=10, max_value=600, value=90, step=5, key="elite_rest_seconds")
