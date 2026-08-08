@@ -1317,6 +1317,190 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
 
     with builder_tab:
         generated_key = f"elite_generated_program_{user.id}"
+
+        with SessionLocal() as session:
+            programs = session.scalars(
+                select(models.WorkoutProgram)
+                .where(models.WorkoutProgram.user_id == user.id)
+                .order_by(models.WorkoutProgram.created_at.desc())
+            ).all()
+
+        if programs:
+            program = st.selectbox("Program", programs, format_func=lambda x: f"{x.name} · {x.goal}")
+
+            st.subheader("Add exercise")
+            c1, c2 = st.columns(2)
+            day_name = c1.text_input("Training day", value="Day 1")
+            body_part = c2.selectbox("Body part or activity", list(library.keys()))
+            exercise_options = library[body_part] + ["Custom exercise"]
+
+            exercise_col, demo_col = st.columns([4, 1])
+            with exercise_col:
+                selected = st.selectbox("Exercise", exercise_options)
+            exercise_name = st.text_input("Custom exercise name") if selected == "Custom exercise" else selected
+            with demo_col:
+                st.write("")
+                st.write("")
+                if exercise_name and exercise_name.strip():
+                    st.link_button(
+                        "View demo",
+                        "https://www.youtube.com/results?search_query=" + quote_plus(exercise_name + " exercise form"),
+                        width="stretch",
+                    )
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            sets = c1.number_input("Sets", min_value=1, max_value=20, value=3)
+            reps_min = c2.number_input("Minimum reps", min_value=1, max_value=100, value=8)
+            reps_max = c3.number_input("Maximum reps", min_value=1, max_value=100, value=12)
+            target_weight = c4.number_input("Starting weight (lb)", min_value=0.0, value=0.0, step=5.0)
+            rest = c5.number_input("Rest seconds", min_value=0, max_value=600, value=90, step=15)
+
+            with st.expander("Advanced exercise options", expanded=False):
+                c6, c7 = st.columns(2)
+                superset = c6.text_input("Superset or circuit group", placeholder="A, B, Circuit 1")
+                set_style = c7.selectbox("Set style", ["Standard", "Warm-up", "Drop set", "AMRAP", "Tempo", "Circuit"])
+
+            if st.button("Add exercise to program", type="primary"):
+                if not exercise_name.strip():
+                    st.error("Enter an exercise name.")
+                else:
+                    with SessionLocal() as session:
+                        count = session.scalar(
+                            select(func.count(models.WorkoutProgramExercise.id))
+                            .where(models.WorkoutProgramExercise.program_id == program.id)
+                        ) or 0
+                        session.add(models.WorkoutProgramExercise(
+                            program_id=program.id,
+                            day_name=day_name.strip() or "Day 1",
+                            order_index=count + 1,
+                            body_part=body_part,
+                            exercise_name=exercise_name.strip(),
+                            sets=int(sets),
+                            reps_min=int(reps_min),
+                            reps_max=max(int(reps_min), int(reps_max)),
+                            target_weight_lb=float(target_weight),
+                            rest_seconds=int(rest),
+                            superset_group=superset.strip(),
+                            set_style=set_style,
+                        ))
+                        session.commit()
+                    st.success("Exercise added.")
+                    st.rerun()
+
+            with SessionLocal() as session:
+                planned = session.scalars(
+                    select(models.WorkoutProgramExercise)
+                    .where(models.WorkoutProgramExercise.program_id == program.id)
+                    .order_by(models.WorkoutProgramExercise.day_name, models.WorkoutProgramExercise.order_index)
+                ).all()
+
+            st.subheader("Current program")
+            if planned:
+                st.dataframe(pd.DataFrame([{
+                    "Day": x.day_name,
+                    "Exercise": x.exercise_name,
+                    "Body part": x.body_part,
+                    "Sets": x.sets,
+                    "Rep range": f"{x.reps_min}-{x.reps_max}",
+                    "Target weight": x.target_weight_lb,
+                    "Rest": x.rest_seconds,
+                    "Group": x.superset_group,
+                    "Set style": x.set_style,
+                } for x in planned]), width="stretch", hide_index=True)
+
+                with st.expander("Start workout from this program", expanded=False):
+                    days = sorted({x.day_name for x in planned})
+                    log_day = st.selectbox("Program day to start", days)
+                    workout_date = st.date_input(
+                        "Workout date",
+                        value=local_today(),
+                        format="MM/DD/YYYY",
+                        key="program_workout_date",
+                    )
+                    smart_progression = st.checkbox(
+                        "Use smart progression from completed workout history",
+                        value=True,
+                        key=f"smart_progression_{program.id}_{log_day}",
+                        help="Planned weights and repetitions are adjusted from your latest completed sets. Turn this off to use the saved program targets exactly.",
+                    )
+                    if st.button("Create workout session from this program day", type="primary", width="stretch"):
+                        day_exercises = [x for x in planned if x.day_name == log_day]
+                        with SessionLocal() as session:
+                            workout = WorkoutSession(
+                                user_id=user.id,
+                                workout_date=workout_date,
+                                workout_name=f"{program.name} · {log_day}",
+                                category=program.goal,
+                                duration_min=0,
+                                calories_burned=0,
+                                notes="Created from Elite Program Builder with smart progression" if smart_progression else "Created from Elite Program Builder",
+                            )
+                            session.add(workout)
+                            session.flush()
+                            progression_notes: list[str] = []
+                            for ex in day_exercises:
+                                target_reps = int(ex.reps_min)
+                                target_weight_value = float(ex.target_weight_lb or 0)
+                                if smart_progression:
+                                    exercise_history = session.scalars(
+                                        select(ExerciseSet)
+                                        .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
+                                        .where(
+                                            WorkoutSession.user_id == user.id,
+                                            ExerciseSet.exercise_name == ex.exercise_name,
+                                            ExerciseSet.completed.is_(True),
+                                        )
+                                        .order_by(WorkoutSession.workout_date.asc(), ExerciseSet.id.asc())
+                                    ).all()
+                                    target = _progression_target(
+                                        list(exercise_history),
+                                        int(ex.reps_min),
+                                        int(ex.reps_max),
+                                        str(ex.body_part),
+                                        float(ex.target_weight_lb or 0),
+                                    )
+                                    target_reps = int(target["reps"])
+                                    target_weight_value = float(target["weight"])
+                                    progression_notes.append(f"{ex.exercise_name}: {target['message']}")
+                                for set_number in range(1, ex.sets + 1):
+                                    session.add(ExerciseSet(
+                                        session_id=workout.id,
+                                        exercise_name=ex.exercise_name,
+                                        set_number=set_number,
+                                        reps=target_reps,
+                                        weight_lb=target_weight_value,
+                                        completed=False,
+                                    ))
+                            if progression_notes:
+                                workout.notes = (workout.notes + "\n" + "\n".join(progression_notes)).strip()
+                            session.commit()
+                        st.success("Workout session created with smart targets." if smart_progression else "Workout session created with saved program targets.")
+            else:
+                st.info("This program does not have any exercises yet.")
+        else:
+            st.info("Create a program or use the smart program generator to begin.")
+
+        with st.expander("Create new program", expanded=not bool(programs)):
+            with st.form("elite_program_create"):
+                name = st.text_input("Program name", value="My Elite Program")
+                c1, c2 = st.columns(2)
+                goal = c1.selectbox("Goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"])
+                days_per_week = c2.number_input("Days per week", min_value=1, max_value=7, value=3)
+                notes = st.text_area("Program notes")
+                create = st.form_submit_button("Create program", type="primary", width="stretch")
+            if create:
+                with SessionLocal() as session:
+                    session.add(models.WorkoutProgram(
+                        user_id=user.id,
+                        name=name.strip() or "Program",
+                        goal=goal,
+                        days_per_week=int(days_per_week),
+                        notes=notes.strip(),
+                    ))
+                    session.commit()
+                st.success("Program created.")
+                st.rerun()
+
         with st.expander("Smart equipment-aware program generator", expanded=False):
             st.caption("Build a structured plan from your goal, schedule, experience, and available equipment. You can still edit every exercise afterward.")
             with st.form("elite_smart_program_generator"):
@@ -1336,7 +1520,13 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 generate_program = st.form_submit_button("Generate program preview", type="primary", width="stretch")
             if generate_program:
                 generated_rows = _build_equipment_aware_plan(
-                    library, smart_goal, int(smart_days), int(smart_minutes), smart_experience, smart_equipment, smart_avoid
+                    library,
+                    smart_goal,
+                    int(smart_days),
+                    int(smart_minutes),
+                    smart_experience,
+                    smart_equipment,
+                    smart_avoid,
                 )
                 st.session_state[generated_key] = {
                     "name": smart_name.strip() or "My Smart Program",
@@ -1397,174 +1587,33 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 else:
                     st.warning("No exercises matched the selected equipment. Add another equipment option or remove an avoid keyword.")
 
-        with st.form("elite_program_create"):
-            name = st.text_input("Program name", value="My Elite Program")
-            c1, c2 = st.columns(2)
-            goal = c1.selectbox("Goal", ["General fitness", "Strength", "Muscle gain", "Fat loss", "Endurance", "Mobility"])
-            days_per_week = c2.number_input("Days per week", min_value=1, max_value=7, value=3)
-            notes = st.text_area("Program notes")
-            create = st.form_submit_button("Create program", type="primary", width="stretch")
-        if create:
-            with SessionLocal() as session:
-                session.add(models.WorkoutProgram(user_id=user.id, name=name.strip() or "Program", goal=goal, days_per_week=int(days_per_week), notes=notes.strip()))
-                session.commit()
-            st.success("Program created.")
-            st.rerun()
-        with SessionLocal() as session:
-            programs = session.scalars(select(models.WorkoutProgram).where(models.WorkoutProgram.user_id == user.id).order_by(models.WorkoutProgram.created_at.desc())).all()
-        if programs:
-            program = st.selectbox("Program", programs, format_func=lambda x: f"{x.name} · {x.goal}")
-            st.subheader("Add program exercise")
-            c1, c2 = st.columns(2)
-            day_name = c1.text_input("Training day", value="Day 1")
-            body_part = c2.selectbox("Body part or activity", list(library.keys()))
-            exercise_options = library[body_part] + ["Custom exercise"]
-            selected = st.selectbox("Exercise", exercise_options)
-            exercise_name = st.text_input("Custom exercise name") if selected == "Custom exercise" else selected
-            c1, c2, c3, c4 = st.columns(4)
-            sets = c1.number_input("Sets", min_value=1, max_value=20, value=3)
-            reps_min = c2.number_input("Minimum reps", min_value=1, max_value=100, value=8)
-            reps_max = c3.number_input("Maximum reps", min_value=1, max_value=100, value=12)
-            rest = c4.number_input("Rest seconds", min_value=0, max_value=600, value=90, step=15)
-            c5, c6, c7 = st.columns(3)
-            target_weight = c5.number_input("Starting weight (lb)", min_value=0.0, value=0.0, step=5.0)
-            superset = c6.text_input("Superset or circuit group", placeholder="A, B, Circuit 1")
-            set_style = c7.selectbox("Set style", ["Standard", "Warm-up", "Drop set", "AMRAP", "Tempo", "Circuit"])
-            if st.button("Add exercise to program", type="primary"):
-                if not exercise_name.strip():
-                    st.error("Enter an exercise name.")
-                else:
-                    with SessionLocal() as session:
-                        count = session.scalar(select(func.count(models.WorkoutProgramExercise.id)).where(models.WorkoutProgramExercise.program_id == program.id)) or 0
-                        session.add(models.WorkoutProgramExercise(
-                            program_id=program.id,
-                            day_name=day_name.strip() or "Day 1",
-                            order_index=count + 1,
-                            body_part=body_part,
-                            exercise_name=exercise_name.strip(),
-                            sets=int(sets),
-                            reps_min=int(reps_min),
-                            reps_max=max(int(reps_min), int(reps_max)),
-                            target_weight_lb=float(target_weight),
-                            rest_seconds=int(rest),
-                            superset_group=superset.strip(),
-                            set_style=set_style,
-                        ))
-                        session.commit()
-                    st.success("Exercise added.")
-                    st.rerun()
-            with SessionLocal() as session:
-                planned = session.scalars(select(models.WorkoutProgramExercise).where(models.WorkoutProgramExercise.program_id == program.id).order_by(models.WorkoutProgramExercise.day_name, models.WorkoutProgramExercise.order_index)).all()
-            if planned:
-                st.dataframe(pd.DataFrame([{
-                    "Day": x.day_name,
-                    "Exercise": x.exercise_name,
-                    "Body part": x.body_part,
-                    "Sets": x.sets,
-                    "Rep range": f"{x.reps_min}-{x.reps_max}",
-                    "Target weight": x.target_weight_lb,
-                    "Rest": x.rest_seconds,
-                    "Group": x.superset_group,
-                    "Set style": x.set_style,
-                } for x in planned]), width="stretch", hide_index=True)
-                demo_exercise = st.selectbox(
-                    "Exercise demonstration",
-                    sorted({x.exercise_name for x in planned}),
-                    key=f"program_demo_{program.id}",
+        with st.expander("Rest timer", expanded=False):
+            timer_seconds = st.number_input("Rest duration in seconds", min_value=10, max_value=600, value=90, step=5, key="elite_rest_seconds")
+            if st.button("Start rest timer", key="elite_start_rest_timer"):
+                components.html(
+                    f"""
+                    <div style="font-family:Arial,sans-serif;padding:14px;border-radius:14px;background:#f5f3ff;border:1px solid #d8d2ff;text-align:center">
+                      <div style="font-size:13px;font-weight:700;color:#6d5dfb">REST TIMER</div>
+                      <div id="nvTimer" style="font-size:40px;font-weight:900;color:#172033;margin:6px 0">{int(timer_seconds)}</div>
+                      <div id="nvTimerText" style="color:#64748b">Breathe and prepare for the next set.</div>
+                    </div>
+                    <script>
+                      let remaining = {int(timer_seconds)};
+                      const timer = document.getElementById('nvTimer');
+                      const text = document.getElementById('nvTimerText');
+                      const id = setInterval(() => {{
+                        remaining -= 1;
+                        timer.textContent = remaining;
+                        if (remaining <= 0) {{
+                          clearInterval(id);
+                          timer.textContent = 'GO';
+                          text.textContent = 'Rest complete. Start the next set.';
+                        }}
+                      }}, 1000);
+                    </script>
+                    """,
+                    height=130,
                 )
-                st.link_button(
-                    "Open exercise demonstration search",
-                    "https://www.youtube.com/results?search_query=" + quote_plus(demo_exercise + " exercise form"),
-                )
-                days = sorted({x.day_name for x in planned})
-                log_day = st.selectbox("Program day to start", days)
-                workout_date = st.date_input("Workout date", value=local_today(), format="MM/DD/YYYY", key="program_workout_date")
-                smart_progression = st.checkbox(
-                    "Use smart progression from completed workout history",
-                    value=True,
-                    key=f"smart_progression_{program.id}_{log_day}",
-                    help="Planned weights and repetitions are adjusted from your latest completed sets. Turn this off to use the saved program targets exactly.",
-                )
-                if st.button("Create workout session from this program day", type="primary", width="stretch"):
-                    day_exercises = [x for x in planned if x.day_name == log_day]
-                    with SessionLocal() as session:
-                        workout = WorkoutSession(
-                            user_id=user.id,
-                            workout_date=workout_date,
-                            workout_name=f"{program.name} · {log_day}",
-                            category=program.goal,
-                            duration_min=0,
-                            calories_burned=0,
-                            notes="Created from Elite Program Builder with smart progression" if smart_progression else "Created from Elite Program Builder",
-                        )
-                        session.add(workout)
-                        session.flush()
-                        progression_notes: list[str] = []
-                        for ex in day_exercises:
-                            target_reps = int(ex.reps_min)
-                            target_weight_value = float(ex.target_weight_lb or 0)
-                            if smart_progression:
-                                exercise_history = session.scalars(
-                                    select(ExerciseSet)
-                                    .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
-                                    .where(
-                                        WorkoutSession.user_id == user.id,
-                                        ExerciseSet.exercise_name == ex.exercise_name,
-                                        ExerciseSet.completed.is_(True),
-                                    )
-                                    .order_by(WorkoutSession.workout_date.asc(), ExerciseSet.id.asc())
-                                ).all()
-                                target = _progression_target(
-                                    list(exercise_history),
-                                    int(ex.reps_min),
-                                    int(ex.reps_max),
-                                    str(ex.body_part),
-                                    float(ex.target_weight_lb or 0),
-                                )
-                                target_reps = int(target["reps"])
-                                target_weight_value = float(target["weight"])
-                                progression_notes.append(f"{ex.exercise_name}: {target['message']}")
-                            for set_number in range(1, ex.sets + 1):
-                                session.add(ExerciseSet(
-                                    session_id=workout.id,
-                                    exercise_name=ex.exercise_name,
-                                    set_number=set_number,
-                                    reps=target_reps,
-                                    weight_lb=target_weight_value,
-                                    completed=False,
-                                ))
-                        if progression_notes:
-                            workout.notes = (workout.notes + "\n" + "\n".join(progression_notes)).strip()
-                        session.commit()
-                    st.success("Workout session created with smart targets." if smart_progression else "Workout session created with saved program targets.")
-
-        st.subheader("Rest timer")
-        timer_seconds = st.number_input("Rest duration in seconds", min_value=10, max_value=600, value=90, step=5, key="elite_rest_seconds")
-        if st.button("Start rest timer", key="elite_start_rest_timer"):
-            components.html(
-                f"""
-                <div style="font-family:Arial,sans-serif;padding:14px;border-radius:14px;background:#f5f3ff;border:1px solid #d8d2ff;text-align:center">
-                  <div style="font-size:13px;font-weight:700;color:#6d5dfb">REST TIMER</div>
-                  <div id="nvTimer" style="font-size:40px;font-weight:900;color:#172033;margin:6px 0">{int(timer_seconds)}</div>
-                  <div id="nvTimerText" style="color:#64748b">Breathe and prepare for the next set.</div>
-                </div>
-                <script>
-                  let remaining = {int(timer_seconds)};
-                  const timer = document.getElementById('nvTimer');
-                  const text = document.getElementById('nvTimerText');
-                  const id = setInterval(() => {{
-                    remaining -= 1;
-                    timer.textContent = remaining;
-                    if (remaining <= 0) {{
-                      clearInterval(id);
-                      timer.textContent = 'GO';
-                      text.textContent = 'Rest complete. Start the next set.';
-                    }}
-                  }}, 1000);
-                </script>
-                """,
-                height=130,
-            )
 
     with overload_tab:
         with SessionLocal() as session:
