@@ -1408,6 +1408,31 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     "Set style": x.set_style,
                 } for x in planned]), width="stretch", hide_index=True)
 
+                with st.popover("Delete exercise from current program"):
+                    exercise_to_delete = st.selectbox(
+                        "Program exercise",
+                        planned,
+                        format_func=lambda x: f"{x.day_name} · {x.exercise_name}",
+                        key=f"delete_program_exercise_select_{program.id}",
+                    )
+                    st.warning(f'Delete "{exercise_to_delete.exercise_name}" from {exercise_to_delete.day_name}? Past workout sessions will not be changed.')
+                    if st.button(
+                        "Confirm delete exercise",
+                        type="primary",
+                        width="stretch",
+                        key=f"delete_program_exercise_{program.id}_{exercise_to_delete.id}",
+                    ):
+                        with SessionLocal() as session:
+                            session.execute(
+                                delete(models.WorkoutProgramExercise).where(
+                                    models.WorkoutProgramExercise.id == exercise_to_delete.id,
+                                    models.WorkoutProgramExercise.program_id == program.id,
+                                )
+                            )
+                            session.commit()
+                        st.success("Exercise removed from current program.")
+                        st.rerun()
+
                 days = sorted({x.day_name for x in planned})
                 with st.popover("Start workout from this program"):
                     log_day = st.selectbox("Program day to start", days, key=f"program_start_day_{program.id}")
