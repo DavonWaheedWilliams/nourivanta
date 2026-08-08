@@ -1477,6 +1477,30 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         st.success("Workout session created with smart targets." if smart_progression else "Workout session created with saved program targets.")
             else:
                 st.info("This program does not have any exercises yet.")
+
+            with st.popover("Delete current program"):
+                st.warning(f'Delete "{program.name}" and its saved program exercises? Existing workout sessions will not be deleted.')
+                if st.button(
+                    "Confirm delete program",
+                    type="primary",
+                    width="stretch",
+                    key=f"delete_program_{program.id}",
+                ):
+                    with SessionLocal() as session:
+                        session.execute(
+                            delete(models.WorkoutProgramExercise)
+                            .where(models.WorkoutProgramExercise.program_id == program.id)
+                        )
+                        session.execute(
+                            delete(models.WorkoutProgram)
+                            .where(
+                                models.WorkoutProgram.id == program.id,
+                                models.WorkoutProgram.user_id == user.id,
+                            )
+                        )
+                        session.commit()
+                    st.success("Program deleted.")
+                    st.rerun()
         else:
             st.info("Create a program or use the smart program generator to begin.")
 
