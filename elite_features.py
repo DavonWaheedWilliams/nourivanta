@@ -1587,55 +1587,108 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         "notes": f"Equipment-aware plan · {smart_experience} · {int(smart_minutes)} minutes",
                         "rows": generated_rows,
                     }
+                    st.session_state.pop(f"{generated_key}_editor", None)
 
                 generated = st.session_state.get(generated_key)
                 if generated:
                     preview_rows = generated.get("rows") or []
                     if preview_rows:
-                        st.dataframe(
-                            pd.DataFrame([{
-                                "Day": row["day_name"],
-                                "Exercise": row["exercise_name"],
-                                "Body part": row["body_part"],
-                                "Sets": row["sets"],
-                                "Rep range": f"{row['reps_min']}-{row['reps_max']}",
-                                "Rest": row["rest_seconds"],
-                                "Equipment": str(row.get("notes", "")).replace("Equipment: ", ""),
-                            } for row in preview_rows]),
+                        st.caption("Edit the generated preview before saving. You can change cells, add rows, or delete rows.")
+                        preview_df = pd.DataFrame([{
+                            "Day": row["day_name"],
+                            "Exercise": row["exercise_name"],
+                            "Body part": row["body_part"],
+                            "Sets": row["sets"],
+                            "Minimum reps": row["reps_min"],
+                            "Maximum reps": row["reps_max"],
+                            "Starting weight (lb)": row.get("target_weight_lb") or 0.0,
+                            "Rest seconds": row["rest_seconds"],
+                            "Equipment": str(row.get("notes", "")).replace("Equipment: ", ""),
+                        } for row in preview_rows])
+                        edited_preview = st.data_editor(
+                            preview_df,
                             width="stretch",
                             hide_index=True,
+                            num_rows="dynamic",
+                            key=f"{generated_key}_editor",
+                            column_config={
+                                "Sets": st.column_config.NumberColumn("Sets", min_value=1, max_value=20, step=1, format="%d"),
+                                "Minimum reps": st.column_config.NumberColumn("Minimum reps", min_value=1, max_value=100, step=1, format="%d"),
+                                "Maximum reps": st.column_config.NumberColumn("Maximum reps", min_value=1, max_value=100, step=1, format="%d"),
+                                "Starting weight (lb)": st.column_config.NumberColumn("Starting weight (lb)", min_value=0.0, step=2.5, format="%.1f"),
+                                "Rest seconds": st.column_config.NumberColumn("Rest seconds", min_value=0, max_value=900, step=5, format="%d"),
+                            },
                         )
                         if st.button("Save generated program", type="primary", width="stretch", key="save_generated_program"):
-                            with SessionLocal() as session:
-                                program_row = models.WorkoutProgram(
-                                    user_id=user.id,
-                                    name=str(generated["name"]),
-                                    goal=str(generated["goal"]),
-                                    days_per_week=int(generated["days_per_week"]),
-                                    notes=str(generated.get("notes") or ""),
-                                )
-                                session.add(program_row)
-                                session.flush()
-                                for row in preview_rows:
-                                    session.add(models.WorkoutProgramExercise(
-                                        program_id=program_row.id,
-                                        day_name=str(row["day_name"]),
-                                        order_index=int(row["order_index"]),
-                                        body_part=str(row["body_part"]),
-                                        exercise_name=str(row["exercise_name"]),
-                                        sets=int(row["sets"]),
-                                        reps_min=int(row["reps_min"]),
-                                        reps_max=int(row["reps_max"]),
-                                        target_weight_lb=float(row.get("target_weight_lb") or 0),
-                                        rest_seconds=int(row["rest_seconds"]),
-                                        superset_group=str(row.get("superset_group") or ""),
-                                        set_style=str(row.get("set_style") or "Standard"),
-                                        notes=str(row.get("notes") or ""),
-                                    ))
-                                session.commit()
-                            st.session_state.pop(generated_key, None)
-                            st.success("Equipment-aware program saved. You can edit or add exercises with the existing Program Builder controls.")
-                            st.rerun()
+                            edited_rows: list[dict[str, Any]] = []
+                            for order_index, record in enumerate(edited_preview.to_dict("records"), start=1):
+                                exercise_name = str(record.get("Exercise") or "").strip()
+                                if not exercise_name:
+                                    continue
+
+                                def _editor_number(value: Any, default: float) -> float:
+                                    try:
+                                        if pd.isna(value):
+                                            return default
+                                    except (TypeError, ValueError):
+                                        pass
+                                    try:
+                                        return float(value)
+                                    except (TypeError, ValueError):
+                                        return default
+
+                                reps_min = max(1, int(_editor_number(record.get("Minimum reps"), 1)))
+                                reps_max = max(reps_min, int(_editor_number(record.get("Maximum reps"), reps_min)))
+                                equipment_text = str(record.get("Equipment") or "").strip()
+                                edited_rows.append({
+                                    "day_name": str(record.get("Day") or "Day 1").strip() or "Day 1",
+                                    "order_index": order_index,
+                                    "body_part": str(record.get("Body part") or "General").strip() or "General",
+                                    "exercise_name": exercise_name,
+                                    "sets": max(1, int(_editor_number(record.get("Sets"), 1))),
+                                    "reps_min": reps_min,
+                                    "reps_max": reps_max,
+                                    "target_weight_lb": max(0.0, _editor_number(record.get("Starting weight (lb)"), 0.0)),
+                                    "rest_seconds": max(0, int(_editor_number(record.get("Rest seconds"), 0))),
+                                    "superset_group": "",
+                                    "set_style": "Standard",
+                                    "notes": f"Equipment: {equipment_text}" if equipment_text else "",
+                                })
+
+                            if not edited_rows:
+                                st.warning("Keep at least one exercise in the generated program before saving.")
+                            else:
+                                with SessionLocal() as session:
+                                    program_row = models.WorkoutProgram(
+                                        user_id=user.id,
+                                        name=str(generated["name"]),
+                                        goal=str(generated["goal"]),
+                                        days_per_week=int(generated["days_per_week"]),
+                                        notes=str(generated.get("notes") or ""),
+                                    )
+                                    session.add(program_row)
+                                    session.flush()
+                                    for row in edited_rows:
+                                        session.add(models.WorkoutProgramExercise(
+                                            program_id=program_row.id,
+                                            day_name=str(row["day_name"]),
+                                            order_index=int(row["order_index"]),
+                                            body_part=str(row["body_part"]),
+                                            exercise_name=str(row["exercise_name"]),
+                                            sets=int(row["sets"]),
+                                            reps_min=int(row["reps_min"]),
+                                            reps_max=int(row["reps_max"]),
+                                            target_weight_lb=float(row.get("target_weight_lb") or 0),
+                                            rest_seconds=int(row["rest_seconds"]),
+                                            superset_group=str(row.get("superset_group") or ""),
+                                            set_style=str(row.get("set_style") or "Standard"),
+                                            notes=str(row.get("notes") or ""),
+                                        ))
+                                    session.commit()
+                                st.session_state.pop(generated_key, None)
+                                st.session_state.pop(f"{generated_key}_editor", None)
+                                st.success("Equipment-aware program saved. You can edit or add exercises with the existing Program Builder controls.")
+                                st.rerun()
                     else:
                         st.warning("No exercises matched the selected equipment. Add another equipment option or remove an avoid keyword.")
 
