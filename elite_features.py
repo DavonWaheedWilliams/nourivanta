@@ -1619,6 +1619,52 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                                 "Rest seconds": st.column_config.NumberColumn("Rest seconds", min_value=0, max_value=900, step=5, format="%d"),
                             },
                         )
+
+                        if not edited_preview.empty:
+                            delete_preview_index = st.selectbox(
+                                "Preview row to delete",
+                                options=list(range(len(edited_preview))),
+                                format_func=lambda idx: f"{idx + 1}. {str(edited_preview.iloc[idx].get('Day') or 'Day')} · {str(edited_preview.iloc[idx].get('Exercise') or 'Exercise')}",
+                                key=f"{generated_key}_delete_row",
+                            )
+                            if st.button("Delete selected preview row", key=f"{generated_key}_delete_row_button"):
+                                remaining_preview = edited_preview.drop(index=edited_preview.index[int(delete_preview_index)]).reset_index(drop=True)
+                                remaining_rows: list[dict[str, Any]] = []
+                                for order_index, record in enumerate(remaining_preview.to_dict("records"), start=1):
+                                    def _delete_editor_number(value: Any, default: float) -> float:
+                                        try:
+                                            if pd.isna(value):
+                                                return default
+                                        except (TypeError, ValueError):
+                                            pass
+                                        try:
+                                            return float(value)
+                                        except (TypeError, ValueError):
+                                            return default
+
+                                    reps_min = max(1, int(_delete_editor_number(record.get("Minimum reps"), 1)))
+                                    reps_max = max(reps_min, int(_delete_editor_number(record.get("Maximum reps"), reps_min)))
+                                    equipment_text = str(record.get("Equipment") or "").strip()
+                                    remaining_rows.append({
+                                        "day_name": str(record.get("Day") or "Day 1").strip() or "Day 1",
+                                        "order_index": order_index,
+                                        "body_part": str(record.get("Body part") or "General").strip() or "General",
+                                        "exercise_name": str(record.get("Exercise") or "").strip(),
+                                        "sets": max(1, int(_delete_editor_number(record.get("Sets"), 1))),
+                                        "reps_min": reps_min,
+                                        "reps_max": reps_max,
+                                        "target_weight_lb": max(0.0, _delete_editor_number(record.get("Starting weight (lb)"), 0.0)),
+                                        "rest_seconds": max(0, int(_delete_editor_number(record.get("Rest seconds"), 0))),
+                                        "superset_group": "",
+                                        "set_style": "Standard",
+                                        "notes": f"Equipment: {equipment_text}" if equipment_text else "",
+                                    })
+                                generated["rows"] = remaining_rows
+                                st.session_state[generated_key] = generated
+                                st.session_state.pop(f"{generated_key}_editor", None)
+                                st.session_state.pop(f"{generated_key}_delete_row", None)
+                                st.rerun()
+
                         if st.button("Save generated program", type="primary", width="stretch", key="save_generated_program"):
                             edited_rows: list[dict[str, Any]] = []
                             for order_index, record in enumerate(edited_preview.to_dict("records"), start=1):
