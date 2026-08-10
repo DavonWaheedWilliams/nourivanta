@@ -1202,12 +1202,128 @@ def _build_equipment_aware_plan(
     return rows
 
 
+def _recent_session_summaries(
+    history: list[Any],
+    reps_min: int,
+    reps_max: int,
+    max_sessions: int = 4,
+) -> list[dict[str, Any]]:
+    """Summarize the most recent completed sessions for one exercise.
+
+    History is already ordered by workout date / set id at each call site.  Grouping
+    by session keeps several sets from one workout from being mistaken for several
+    separate progression events.
+    """
+    grouped: dict[Any, list[Any]] = {}
+    order: list[Any] = []
+    for row in history:
+        if int(getattr(row, "reps", 0) or 0) <= 0:
+            continue
+        session_key = getattr(row, "session_id", None)
+        if session_key is None:
+            session_key = ("set", getattr(row, "id", id(row)))
+        if session_key not in grouped:
+            grouped[session_key] = []
+            order.append(session_key)
+        grouped[session_key].append(row)
+
+    summaries: list[dict[str, Any]] = []
+    for session_key in order[-max_sessions:]:
+        rows = grouped[session_key]
+        reps = [int(getattr(row, "reps", 0) or 0) for row in rows if int(getattr(row, "reps", 0) or 0) > 0]
+        weighted_rows = [row for row in rows if float(getattr(row, "weight_lb", 0) or 0) > 0 and int(getattr(row, "reps", 0) or 0) > 0]
+        weights = [float(getattr(row, "weight_lb", 0) or 0) for row in weighted_rows]
+        sorted_weights = sorted(weights)
+        median_weight = (
+            sorted_weights[len(sorted_weights) // 2]
+            if len(sorted_weights) % 2 == 1
+            else (sorted_weights[len(sorted_weights) // 2 - 1] + sorted_weights[len(sorted_weights) // 2]) / 2
+        ) if sorted_weights else 0.0
+        e1rms = [
+            float(getattr(row, "weight_lb", 0) or 0) * (1 + int(getattr(row, "reps", 0) or 0) / 30)
+            for row in weighted_rows
+        ]
+        summaries.append({
+            "session_key": session_key,
+            "sets": len(reps),
+            "avg_reps": sum(reps) / max(1, len(reps)),
+            "min_reps": min(reps) if reps else 0,
+            "max_reps": max(reps) if reps else 0,
+            "top_range_pct": sum(1 for value in reps if value >= int(reps_max)) / max(1, len(reps)),
+            "below_range_pct": sum(1 for value in reps if value < int(reps_min)) / max(1, len(reps)),
+            "median_weight": median_weight,
+            "best_weight": max(weights, default=0.0),
+            "best_e1rm": max(e1rms, default=0.0),
+        })
+    return summaries
+
+
+def _current_progression_readiness(user: Any, ctx: dict[str, Any]) -> int | None:
+    """Return today's recovery/readiness signal when enough current data exists.
+
+    This does not create or modify any records.  It reuses the existing readiness
+    inputs and wearable bridge so adaptive progression can temper only today's
+    recommendation.
+    """
+    try:
+        SessionLocal = ctx["SessionLocal"]
+        DailyCheckIn = ctx["DailyCheckIn"]
+        FoodLog = ctx["FoodLog"]
+        WaterLog = ctx["WaterLog"]
+        models = ctx.get("models")
+        with SessionLocal() as session:
+            checkin = session.scalar(
+                select(DailyCheckIn).where(
+                    DailyCheckIn.user_id == user.id,
+                    DailyCheckIn.checkin_date == local_today(),
+                )
+            )
+            wearable = None
+            WearableMetric = getattr(models, "WearableMetric", None) if models is not None else None
+            if WearableMetric is not None:
+                wearable = session.scalar(
+                    select(WearableMetric)
+                    .where(WearableMetric.user_id == user.id)
+                    .order_by(WearableMetric.metric_date.desc(), WearableMetric.id.desc())
+                )
+                if wearable is not None:
+                    metric_date = getattr(wearable, "metric_date", None)
+                    if metric_date is not None and metric_date < local_today() - timedelta(days=2):
+                        wearable = None
+            nutrition_row = session.execute(
+                select(
+                    func.coalesce(func.sum(FoodLog.calories), 0),
+                    func.coalesce(func.sum(FoodLog.protein_g), 0),
+                    func.coalesce(func.sum(FoodLog.carbs_g), 0),
+                    func.coalesce(func.sum(FoodLog.fat_g), 0),
+                ).where(FoodLog.user_id == user.id, FoodLog.log_date == local_today())
+            ).one()
+            water = session.scalar(
+                select(func.coalesce(func.sum(WaterLog.amount_ml), 0)).where(
+                    WaterLog.user_id == user.id, WaterLog.log_date == local_today()
+                )
+            ) or 0
+        if checkin is None and wearable is None:
+            return None
+        totals = {
+            "calories": float(nutrition_row[0]),
+            "protein": float(nutrition_row[1]),
+            "carbs": float(nutrition_row[2]),
+            "fat": float(nutrition_row[3]),
+            "water": float(water),
+        }
+        return int(_combined_readiness(user, checkin, wearable, totals, ctx))
+    except Exception:
+        return None
+
+
 def _progression_target(
     history: list[Any],
     reps_min: int,
     reps_max: int,
     body_part: str,
     fallback_weight: float = 0.0,
+    readiness_score: int | None = None,
 ) -> dict[str, Any]:
     completed = [row for row in history if int(getattr(row, "reps", 0) or 0) > 0]
     if not completed:
@@ -1217,39 +1333,119 @@ def _progression_target(
             "message": "No completed history yet. Start with the saved program target and build from there.",
         }
 
+    summaries = _recent_session_summaries(completed, int(reps_min), int(reps_max), max_sessions=4)
+    latest_summary = summaries[-1] if summaries else None
+    recent_two = summaries[-2:]
+    recent_three = summaries[-3:]
     weighted = [row for row in completed if float(getattr(row, "weight_lb", 0) or 0) > 0]
-    if weighted:
-        latest = weighted[-1]
-        latest_weight = float(latest.weight_lb)
-        latest_reps = int(latest.reps)
+
+    # Recovery modifies today's target only.  A low-readiness day never becomes a
+    # permanent regression in saved program history unless the user explicitly
+    # applies a separately calculated program target.
+    recovery_prefix = ""
+    if readiness_score is not None:
+        if readiness_score < 45:
+            recovery_prefix = f"Readiness {readiness_score}/100: recovery-biased target. "
+        elif readiness_score < 60:
+            recovery_prefix = f"Readiness {readiness_score}/100: hold progression today. "
+        elif readiness_score >= 80:
+            recovery_prefix = f"Readiness {readiness_score}/100: strong recovery. "
+
+    if weighted and latest_summary:
+        latest_weight = float(latest_summary.get("median_weight") or getattr(weighted[-1], "weight_lb", 0) or fallback_weight)
+        latest_avg_reps = float(latest_summary.get("avg_reps", 0))
         lower_body_parts = {"Quadriceps", "Hamstrings", "Glutes", "Calves", "Full Body"}
         increment = 10.0 if body_part in lower_body_parts and latest_weight >= 50 else 5.0
-        if latest_reps >= int(reps_max):
+
+        # Detect repeated misses instead of reacting to a single off set.
+        missed_sessions = sum(1 for item in recent_two if float(item.get("below_range_pct", 0)) >= 0.5)
+        repeated_miss = len(recent_two) >= 2 and missed_sessions >= 2
+
+        # Strength trend uses best estimated 1RM from the most recent sessions.
+        e1rm_values = [float(item.get("best_e1rm", 0)) for item in recent_three if float(item.get("best_e1rm", 0)) > 0]
+        trend_pct = 0.0
+        if len(e1rm_values) >= 2 and e1rm_values[0] > 0:
+            trend_pct = (e1rm_values[-1] - e1rm_values[0]) / e1rm_values[0] * 100
+        declining = trend_pct <= -5.0
+        improving = trend_pct >= 2.0
+
+        # Very low recovery: reduce today's working load modestly and reset reps.
+        if readiness_score is not None and readiness_score < 45:
+            reduced_weight = max(0.0, round((latest_weight * 0.90) / 5) * 5)
+            if reduced_weight <= 0 and latest_weight > 0:
+                reduced_weight = latest_weight
+            return {
+                "weight": reduced_weight,
+                "reps": int(reps_min),
+                "message": recovery_prefix + f"Use about {reduced_weight:g} lb for {int(reps_min)} reps and prioritize clean technique instead of overload.",
+            }
+
+        # Two recent misses or a clear strength decline calls for a small reset.
+        if repeated_miss or (declining and latest_avg_reps < int(reps_max)):
+            reduced_weight = max(0.0, latest_weight - increment)
+            reason = "two recent sessions missed the rep range" if repeated_miss else "recent strength trend is down"
+            return {
+                "weight": reduced_weight,
+                "reps": int(reps_min),
+                "message": recovery_prefix + f"Because {reason}, reset to {reduced_weight:g} lb and target {int(reps_min)} controlled reps before building again.",
+            }
+
+        # Moderate recovery means no load increase even after a good session.
+        if readiness_score is not None and readiness_score < 60:
+            target_reps = max(int(reps_min), min(int(reps_max), round(latest_avg_reps)))
+            return {
+                "weight": latest_weight,
+                "reps": target_reps,
+                "message": recovery_prefix + f"Keep {latest_weight:g} lb and repeat about {target_reps} reps rather than adding load.",
+            }
+
+        # Require consistent top-of-range performance across the workout, not one set.
+        top_range_success = float(latest_summary.get("top_range_pct", 0)) >= 0.75
+        prior_top_success = len(recent_two) >= 2 and float(recent_two[-2].get("top_range_pct", 0)) >= 0.60
+        if top_range_success and (prior_top_success or improving or len(summaries) == 1):
             next_weight = latest_weight + increment
+            trend_note = " Recent strength trend is improving." if improving else ""
             return {
                 "weight": next_weight,
                 "reps": int(reps_min),
-                "message": f"Increase to {next_weight:g} lb and restart at {int(reps_min)} reps.",
+                "message": recovery_prefix + f"Rep-range performance supports progression: increase to {next_weight:g} lb and restart at {int(reps_min)} reps.{trend_note}",
             }
-        next_reps = min(int(reps_max), max(int(reps_min), latest_reps + 1))
+
+        # Otherwise use double progression: add a rep while holding load.
+        next_reps = min(int(reps_max), max(int(reps_min), int(round(latest_avg_reps)) + 1))
         return {
             "weight": latest_weight,
             "reps": next_reps,
-            "message": f"Keep {latest_weight:g} lb and target {next_reps} reps before adding weight.",
+            "message": recovery_prefix + f"Keep {latest_weight:g} lb and target {next_reps} reps. Build consistent sets near the top of the {int(reps_min)}-{int(reps_max)} range before adding weight.",
         }
 
-    latest_reps = int(completed[-1].reps)
-    if latest_reps >= int(reps_max):
+    # Reps-only / bodyweight progression uses the same recent-session logic.
+    latest_reps = int(round(float(latest_summary.get("avg_reps", getattr(completed[-1], "reps", reps_min))))) if latest_summary else int(completed[-1].reps)
+    repeated_miss = len(recent_two) >= 2 and all(float(item.get("below_range_pct", 0)) >= 0.5 for item in recent_two)
+    if readiness_score is not None and readiness_score < 60:
+        return {
+            "weight": 0.0,
+            "reps": max(int(reps_min), min(int(reps_max), latest_reps)),
+            "message": recovery_prefix + "Repeat the current variation without progressing it today.",
+        }
+    if repeated_miss:
         return {
             "weight": 0.0,
             "reps": int(reps_min),
-            "message": f"Use a slightly harder variation and restart near {int(reps_min)} reps.",
+            "message": "Two recent sessions missed the rep range. Reset to the lower end of the range with clean form before adding reps.",
+        }
+    top_range_success = latest_summary is not None and float(latest_summary.get("top_range_pct", 0)) >= 0.75
+    if top_range_success:
+        return {
+            "weight": 0.0,
+            "reps": int(reps_min),
+            "message": recovery_prefix + f"Most recent sets reached the top of the range. Use a slightly harder variation and restart near {int(reps_min)} reps.",
         }
     next_reps = min(int(reps_max), max(int(reps_min), latest_reps + 1))
     return {
         "weight": 0.0,
         "reps": next_reps,
-        "message": f"Add one repetition and target {next_reps} reps next time.",
+        "message": recovery_prefix + f"Add one repetition and target {next_reps} reps next time.",
     }
 
 
@@ -1450,6 +1646,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     )
                     if st.button("Create workout session", type="primary", width="stretch", key=f"create_program_workout_{program.id}_{log_day}"):
                         day_exercises = [x for x in planned if x.day_name == log_day]
+                        current_readiness = _current_progression_readiness(user, ctx) if smart_progression else None
                         with SessionLocal() as session:
                             workout = WorkoutSession(
                                 user_id=user.id,
@@ -1483,6 +1680,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                                         int(ex.reps_max),
                                         str(ex.body_part),
                                         float(ex.target_weight_lb or 0),
+                                        readiness_score=current_readiness,
                                     )
                                     target_reps = int(target["reps"])
                                     target_weight_value = float(target["weight"])
@@ -1587,7 +1785,6 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         "notes": f"Equipment-aware plan · {smart_experience} · {int(smart_minutes)} minutes",
                         "rows": generated_rows,
                     }
-                    st.session_state.pop(f"{generated_key}_editor", None)
 
                 generated = st.session_state.get(generated_key)
                 if generated:
@@ -1805,7 +2002,11 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     (x.weight_lb * (1 + x.reps / 30) for x in weighted_history),
                     default=0,
                 )
-                default_target = _progression_target(history, 8, 12, exercise_part, float(latest_progress_set.weight_lb or 0))
+                current_readiness = _current_progression_readiness(user, ctx)
+                default_target = _progression_target(
+                    history, 8, 12, exercise_part, float(latest_progress_set.weight_lb or 0),
+                    readiness_score=current_readiness,
+                )
                 recommendation = str(default_target["message"])
                 st.markdown(
                     f"""
