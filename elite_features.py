@@ -1978,26 +1978,35 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             ).all() if workout_ids else []
         workout_by_id = {workout.id: workout for workout in workouts}
 
-        # All-workout overview: show completed training history across every exercise.
+        # All-workout overview: show every created workout session on the timeline.
+        # Sessions without completed sets remain visible with zero completed sets and zero volume.
         # The existing individual-exercise PR charts remain below unchanged.
         completed_sets_all = [
             x for x in sets
             if x.completed and workout_by_id.get(x.session_id)
         ]
-        if completed_sets_all:
+        if workouts:
             completed_session_ids = {x.session_id for x in completed_sets_all}
             overview_by_date: dict[date, dict[str, Any]] = {}
-            for set_row in completed_sets_all:
-                workout_date = workout_by_id[set_row.session_id].workout_date
+
+            # Seed the overview with every created workout date so zero-completion sessions
+            # are not dropped from the charts.
+            for workout in workouts:
                 day = overview_by_date.setdefault(
-                    workout_date,
+                    workout.workout_date,
                     {
+                        "sessions": 0,
                         "sets": 0,
                         "exercises": set(),
                         "total_reps": 0,
                         "weighted_volume": 0.0,
                     },
                 )
+                day["sessions"] += 1
+
+            for set_row in completed_sets_all:
+                workout_date = workout_by_id[set_row.session_id].workout_date
+                day = overview_by_date[workout_date]
                 day["sets"] += 1
                 day["exercises"].add(str(set_row.exercise_name))
                 if int(set_row.reps or 0) > 0:
@@ -2011,6 +2020,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 overview_rows.append(
                     {
                         "Date": workout_date.strftime("%m/%d/%Y"),
+                        "Sessions": int(day.get("sessions", 0)),
                         "Completed sets": int(day["sets"]),
                         "Exercises": len(day["exercises"]),
                         "Total reps": int(day["total_reps"]),
@@ -2025,7 +2035,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
 
             st.markdown("### All workout history")
             st.caption(
-                "This overview uses every completed exercise set. Created sessions with no completed sets are not counted as training progress."
+                "Every created workout session is shown. Sessions with no completed sets appear with zero completed sets and zero training volume."
             )
             st.markdown(
                 f"""
@@ -2061,6 +2071,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         },
                         "tooltip": [
                             {"field": "Date", "type": "nominal", "title": "Workout date"},
+                            {"field": "Sessions", "type": "quantitative", "title": "Sessions"},
                             {"field": "Weighted volume", "type": "quantitative", "title": "Weighted volume", "format": ",.0f"},
                             {"field": "Completed sets", "type": "quantitative", "title": "Completed sets"},
                             {"field": "Exercises", "type": "quantitative", "title": "Exercises"},
@@ -2093,6 +2104,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         },
                         "tooltip": [
                             {"field": "Date", "type": "nominal", "title": "Workout date"},
+                            {"field": "Sessions", "type": "quantitative", "title": "Sessions"},
                             {"field": "Completed sets", "type": "quantitative", "title": "Completed sets"},
                             {"field": "Exercises", "type": "quantitative", "title": "Exercises"},
                             {"field": "Total reps", "type": "quantitative", "title": "Total reps"},
