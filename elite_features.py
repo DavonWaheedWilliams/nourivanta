@@ -1977,6 +1977,136 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                 .order_by(ExerciseSet.id.asc())
             ).all() if workout_ids else []
         workout_by_id = {workout.id: workout for workout in workouts}
+
+        # All-workout overview: show completed training history across every exercise.
+        # The existing individual-exercise PR charts remain below unchanged.
+        completed_sets_all = [
+            x for x in sets
+            if x.completed and workout_by_id.get(x.session_id)
+        ]
+        if completed_sets_all:
+            completed_session_ids = {x.session_id for x in completed_sets_all}
+            overview_by_date: dict[date, dict[str, Any]] = {}
+            for set_row in completed_sets_all:
+                workout_date = workout_by_id[set_row.session_id].workout_date
+                day = overview_by_date.setdefault(
+                    workout_date,
+                    {
+                        "sets": 0,
+                        "exercises": set(),
+                        "total_reps": 0,
+                        "weighted_volume": 0.0,
+                    },
+                )
+                day["sets"] += 1
+                day["exercises"].add(str(set_row.exercise_name))
+                if int(set_row.reps or 0) > 0:
+                    day["total_reps"] += int(set_row.reps)
+                if float(set_row.weight_lb or 0) > 0 and int(set_row.reps or 0) > 0:
+                    day["weighted_volume"] += float(set_row.weight_lb) * int(set_row.reps)
+
+            overview_rows = []
+            for workout_date in sorted(overview_by_date):
+                day = overview_by_date[workout_date]
+                overview_rows.append(
+                    {
+                        "Date": workout_date.strftime("%m/%d/%Y"),
+                        "Completed sets": int(day["sets"]),
+                        "Exercises": len(day["exercises"]),
+                        "Total reps": int(day["total_reps"]),
+                        "Weighted volume": round(float(day["weighted_volume"]), 1),
+                    }
+                )
+
+            overview_df = pd.DataFrame(overview_rows)
+            overview_dates = overview_df["Date"].tolist()
+            overview_angle = -30 if len(overview_dates) > 7 else 0
+            unique_exercises = len({str(x.exercise_name) for x in completed_sets_all})
+
+            st.markdown("### All workout history")
+            st.caption(
+                "This overview uses every completed exercise set. Created sessions with no completed sets are not counted as training progress."
+            )
+            st.markdown(
+                f"""
+                <div class="nv-elite-grid">
+                    <div class="nv-elite-tile"><div class="nv-label">Sessions created</div><div class="nv-elite-big">{len(workouts)}</div></div>
+                    <div class="nv-elite-tile"><div class="nv-label">Sessions with completed sets</div><div class="nv-elite-big">{len(completed_session_ids)}</div></div>
+                    <div class="nv-elite-tile"><div class="nv-label">Completed sets</div><div class="nv-elite-big">{len(completed_sets_all)}</div></div>
+                    <div class="nv-elite-tile"><div class="nv-label">Exercises logged</div><div class="nv-elite-big">{unique_exercises}</div></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.caption("Completed training volume across all exercises by workout date.")
+            st.vega_lite_chart(
+                overview_df,
+                {
+                    "height": 280,
+                    "mark": {"type": "line", "point": {"filled": True, "size": 80}, "strokeWidth": 3},
+                    "encoding": {
+                        "x": {
+                            "field": "Date",
+                            "type": "ordinal",
+                            "sort": overview_dates,
+                            "title": "Workout date",
+                            "axis": {"labelAngle": overview_angle},
+                        },
+                        "y": {
+                            "field": "Weighted volume",
+                            "type": "quantitative",
+                            "title": "Weighted volume (lb-reps)",
+                            "scale": {"zero": True},
+                        },
+                        "tooltip": [
+                            {"field": "Date", "type": "nominal", "title": "Workout date"},
+                            {"field": "Weighted volume", "type": "quantitative", "title": "Weighted volume", "format": ",.0f"},
+                            {"field": "Completed sets", "type": "quantitative", "title": "Completed sets"},
+                            {"field": "Exercises", "type": "quantitative", "title": "Exercises"},
+                            {"field": "Total reps", "type": "quantitative", "title": "Total reps"},
+                        ],
+                    },
+                },
+                use_container_width=True,
+            )
+
+            st.caption("Completed sets across all exercises by workout date.")
+            st.vega_lite_chart(
+                overview_df,
+                {
+                    "height": 230,
+                    "mark": {"type": "bar", "cornerRadiusTopLeft": 5, "cornerRadiusTopRight": 5},
+                    "encoding": {
+                        "x": {
+                            "field": "Date",
+                            "type": "ordinal",
+                            "sort": overview_dates,
+                            "title": "Workout date",
+                            "axis": {"labelAngle": overview_angle},
+                        },
+                        "y": {
+                            "field": "Completed sets",
+                            "type": "quantitative",
+                            "title": "Completed sets",
+                            "scale": {"zero": True},
+                        },
+                        "tooltip": [
+                            {"field": "Date", "type": "nominal", "title": "Workout date"},
+                            {"field": "Completed sets", "type": "quantitative", "title": "Completed sets"},
+                            {"field": "Exercises", "type": "quantitative", "title": "Exercises"},
+                            {"field": "Total reps", "type": "quantitative", "title": "Total reps"},
+                        ],
+                    },
+                },
+                use_container_width=True,
+            )
+
+            with st.expander("All-workout details", expanded=False):
+                st.dataframe(overview_df, width="stretch", hide_index=True)
+
+            st.markdown("### Exercise detail")
+
         names = sorted({x.exercise_name for x in sets})
         if not names:
             st.info("Complete exercise sets to generate overload recommendations and personal records.")
@@ -1993,6 +2123,12 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             ]
             history.sort(key=lambda x: (workout_by_id[x.session_id].workout_date, x.id))
             if history:
+                exercise_dates = sorted({workout_by_id[x.session_id].workout_date for x in history})
+                st.caption(
+                    f"{exercise} has completed data on {len(exercise_dates)} workout date"
+                    + ("." if len(exercise_dates) == 1 else "s.")
+                    + " The charts below show only this selected exercise."
+                )
                 weighted_history = [x for x in history if x.weight_lb > 0 and x.reps > 0]
                 reps_only_history = [x for x in history if x.weight_lb <= 0 and x.reps > 0]
                 latest_progress_set = weighted_history[-1] if weighted_history else reps_only_history[-1] if reps_only_history else history[-1]
