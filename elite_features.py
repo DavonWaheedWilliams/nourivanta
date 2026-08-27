@@ -2112,6 +2112,42 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             st.info("Complete exercise sets to generate overload recommendations and personal records.")
         else:
             exercise = st.selectbox("Exercise history", names)
+
+            delete_history_key = f"delete_exercise_history_confirm_{user.id}_{exercise}"
+            if not st.session_state.get(delete_history_key, False):
+                if st.button("Delete exercise from exercise history", key=f"delete_exercise_history_{user.id}_{exercise}"):
+                    st.session_state[delete_history_key] = True
+                    st.rerun()
+            else:
+                st.warning(
+                    f"Delete all recorded sets for {exercise} from exercise history? "
+                    "The workout sessions will remain, but this exercise's recorded set history will be removed."
+                )
+                confirm_col, cancel_col = st.columns(2)
+                if confirm_col.button(
+                    "Confirm delete exercise history",
+                    type="primary",
+                    key=f"confirm_delete_exercise_history_{user.id}_{exercise}",
+                ):
+                    with SessionLocal() as session:
+                        owned_workout_ids = select(WorkoutSession.id).where(WorkoutSession.user_id == user.id)
+                        session.execute(
+                            delete(ExerciseSet).where(
+                                ExerciseSet.session_id.in_(owned_workout_ids),
+                                ExerciseSet.exercise_name == exercise,
+                            )
+                        )
+                        session.commit()
+                    st.session_state.pop(delete_history_key, None)
+                    st.success(f"{exercise} was removed from exercise history.")
+                    st.rerun()
+                if cancel_col.button(
+                    "Cancel",
+                    key=f"cancel_delete_exercise_history_{user.id}_{exercise}",
+                ):
+                    st.session_state.pop(delete_history_key, None)
+                    st.rerun()
+
             exercise_part = _body_part_lookup(exercise, library)
             alternatives = [x for x in library.get(exercise_part, []) if x != exercise][:6]
             if alternatives:
