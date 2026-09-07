@@ -1983,7 +1983,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
         # The existing individual-exercise PR charts remain below unchanged.
         completed_sets_all = [
             x for x in sets
-            if x.completed and workout_by_id.get(x.session_id)
+            if workout_by_id.get(x.session_id)
         ]
         if workouts:
             completed_session_ids = {x.session_id for x in completed_sets_all}
@@ -2035,7 +2035,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
 
             st.markdown("### All workout history")
             st.caption(
-                "Every created workout session is shown. Sessions with no completed sets appear with zero completed sets and zero training volume."
+                "Every created workout session is shown, and every exercise set saved inside those sessions is included in the progress totals and charts."
             )
             st.markdown(
                 f"""
@@ -2167,7 +2167,7 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             st.link_button("Open exercise demonstration search", "https://www.youtube.com/results?search_query=" + quote_plus(exercise + " exercise form"))
             history = [
                 x for x in sets
-                if x.exercise_name == exercise and x.completed and workout_by_id.get(x.session_id)
+                if x.exercise_name == exercise and workout_by_id.get(x.session_id)
             ]
             history.sort(key=lambda x: (workout_by_id[x.session_id].workout_date, x.id))
             if history:
