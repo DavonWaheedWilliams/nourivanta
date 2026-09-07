@@ -3842,6 +3842,87 @@ def render_workouts(user: User) -> None:
                         st.write(workout.notes)
                     with SessionLocal() as session:
                         sets = session.scalars(select(ExerciseSet).where(ExerciseSet.session_id == workout.id).order_by(ExerciseSet.exercise_name, ExerciseSet.set_number)).all()
+
+                    with st.popover("Add exercise to this workout", width="stretch"):
+                        add_left, add_right = st.columns(2)
+                        history_body_part = add_left.selectbox(
+                            "Body part or activity",
+                            list(EXERCISE_LIBRARY),
+                            key=f"history_add_body_part_{workout.id}",
+                        )
+                        history_exercise_options = [*EXERCISE_LIBRARY[history_body_part], CUSTOM_EXERCISE_OPTION]
+                        history_selected_exercise = add_right.selectbox(
+                            "Exercise",
+                            history_exercise_options,
+                            key=f"history_add_exercise_{workout.id}",
+                        )
+                        history_custom_exercise = ""
+                        if history_selected_exercise == CUSTOM_EXERCISE_OPTION:
+                            history_custom_exercise = st.text_input(
+                                "Unique exercise name",
+                                placeholder="Enter your exercise name",
+                                key=f"history_add_custom_exercise_{workout.id}",
+                            )
+                        history_exercise_name = (
+                            history_custom_exercise.strip()
+                            if history_selected_exercise == CUSTOM_EXERCISE_OPTION
+                            else history_selected_exercise
+                        )
+
+                        with st.form(f"history_add_exercise_form_{workout.id}", clear_on_submit=True):
+                            a1, a2, a3 = st.columns(3)
+                            history_sets_count = a1.number_input(
+                                "Sets", min_value=1, max_value=20, value=3, step=1,
+                                key=f"history_add_sets_{workout.id}",
+                            )
+                            history_reps = a2.number_input(
+                                "Reps", min_value=0, max_value=1000, value=10, step=1,
+                                key=f"history_add_reps_{workout.id}",
+                            )
+                            history_weight = a3.number_input(
+                                "Weight (lb)", min_value=0.0, max_value=3000.0, value=0.0, step=2.5,
+                                key=f"history_add_weight_{workout.id}",
+                            )
+                            a4, a5 = st.columns(2)
+                            history_distance = a4.number_input(
+                                "Distance (miles)", min_value=0.0, max_value=500.0, value=0.0, step=0.1,
+                                key=f"history_add_distance_{workout.id}",
+                            )
+                            history_minutes = a5.number_input(
+                                "Minutes", min_value=0.0, max_value=600.0, value=0.0, step=0.5,
+                                key=f"history_add_minutes_{workout.id}",
+                            )
+                            add_history_exercise = st.form_submit_button(
+                                "Add exercise", type="primary", width="stretch"
+                            )
+                        if add_history_exercise:
+                            if not history_exercise_name:
+                                st.error("Enter a unique exercise name.")
+                            else:
+                                with SessionLocal() as session:
+                                    owned_workout = session.scalar(
+                                        select(WorkoutSession).where(
+                                            WorkoutSession.id == workout.id,
+                                            WorkoutSession.user_id == user.id,
+                                        )
+                                    )
+                                    if owned_workout is None:
+                                        st.error("This workout could not be found.")
+                                    else:
+                                        for set_index in range(1, int(history_sets_count) + 1):
+                                            session.add(ExerciseSet(
+                                                session_id=workout.id,
+                                                exercise_name=history_exercise_name,
+                                                set_number=set_index,
+                                                reps=int(history_reps),
+                                                weight_lb=float(history_weight),
+                                                distance_miles=float(history_distance),
+                                                duration_min=float(history_minutes),
+                                            ))
+                                        session.commit()
+                                        st.success(f"{history_exercise_name} added to this workout.")
+                                st.rerun()
+
                     if sets:
                         df = pd.DataFrame([{"Exercise": x.exercise_name, "Set": x.set_number, "Reps": x.reps, "Weight (lb)": x.weight_lb, "Distance (mi)": x.distance_miles, "Minutes": x.duration_min} for x in sets])
                         st.dataframe(df, width="stretch", hide_index=True)
