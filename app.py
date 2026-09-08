@@ -4030,6 +4030,43 @@ def render_workouts(user: User) -> None:
                                     session.commit()
                                     st.success("Exercise set updated.")
                             st.rerun()
+
+                        multiple_set_ids = st.multiselect(
+                            "Exercise sets to delete",
+                            options=list(set_options),
+                            format_func=lambda value: (
+                                f"{set_options[value].exercise_name} · Set {set_options[value].set_number} · "
+                                f"{set_options[value].reps} reps · {set_options[value].weight_lb:g} lb"
+                            ),
+                            key=f"history_multi_set_delete_{workout.id}",
+                        )
+                        if st.button(
+                            "Delete selected sets",
+                            key=f"delete_multiple_sets_{workout.id}",
+                            disabled=not bool(multiple_set_ids),
+                            width="stretch",
+                        ):
+                            with SessionLocal() as session:
+                                owned_sets = session.scalars(
+                                    select(ExerciseSet)
+                                    .join(WorkoutSession, ExerciseSet.session_id == WorkoutSession.id)
+                                    .where(
+                                        ExerciseSet.id.in_(multiple_set_ids),
+                                        WorkoutSession.id == workout.id,
+                                        WorkoutSession.user_id == user.id,
+                                    )
+                                ).all()
+                                deleted_count = len(owned_sets)
+                                for owned_set in owned_sets:
+                                    session.delete(owned_set)
+                                session.commit()
+                            if deleted_count:
+                                st.success(
+                                    f"{deleted_count} exercise set{'s' if deleted_count != 1 else ''} deleted."
+                                )
+                            else:
+                                st.error("The selected exercise sets could not be found.")
+                            st.rerun()
                     else:
                         st.caption("No detailed exercise sets saved.")
                     if st.button("Delete workout", key=f"delete_workout_{workout.id}"):
