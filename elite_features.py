@@ -2420,12 +2420,6 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                             }
                         )
                     reps_df = pd.DataFrame(reps_rows)
-                    st.dataframe(
-                        reps_df[["Date", "Sets", "Total reps", "Best set reps"]],
-                        width="stretch",
-                        hide_index=True,
-                    )
-
                 if not weighted_history and not reps_only_history:
                     st.info("Add repetitions or weight to completed sets to generate a progression chart.")
 
