@@ -1497,6 +1497,213 @@ def _normalize_wearable_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     return pd.DataFrame(rows), note
 
 
+
+def _exercise_form_guide(exercise_name: str, body_part: str = "") -> dict[str, Any]:
+    """Return a concise in-app form guide without changing workout data."""
+    name = (exercise_name or "Exercise").strip()
+    key = name.lower()
+    part = (body_part or "").strip() or "Target area"
+
+    guides: list[tuple[tuple[str, ...], dict[str, Any]]] = [
+        (("squat", "leg press"), {
+            "focus": "Legs and hips",
+            "setup": "Brace your trunk, keep the whole foot supported, and set the knees in line with the toes.",
+            "rep": "Lower under control to the deepest comfortable position you can own, then drive through the foot to stand or press.",
+            "cues": ["Keep pressure through the whole foot", "Knees track with toes", "Control the lowering phase"],
+            "mistakes": ["Heels lifting", "Knees collapsing inward", "Bouncing out of the bottom"],
+        }),
+        (("deadlift", "romanian", "good morning"), {
+            "focus": "Posterior chain",
+            "setup": "Brace before moving and keep the load close to the body.",
+            "rep": "Push the hips back while keeping a long neutral spine, then finish by standing tall without leaning backward.",
+            "cues": ["Hips travel back", "Keep the load close", "Stand tall at the finish"],
+            "mistakes": ["Rounding the low back", "Turning the movement into a squat", "Overextending at lockout"],
+        }),
+        (("bench", "chest press", "push-up", "push up", "incline press"), {
+            "focus": "Chest, shoulders, triceps",
+            "setup": "Set the shoulder blades firmly and keep the wrists stacked over the forearms.",
+            "rep": "Lower with control, keep the elbows in a comfortable angle from the torso, then press without losing shoulder position.",
+            "cues": ["Shoulders stay set", "Wrists stay stacked", "Control the bottom position"],
+            "mistakes": ["Flaring elbows excessively", "Bouncing the load", "Losing shoulder position"],
+        }),
+        (("row", "cable row"), {
+            "focus": "Upper back and arms",
+            "setup": "Brace the torso and begin with the shoulders relaxed rather than shrugged.",
+            "rep": "Pull the elbows back while keeping the torso stable, pause briefly, then return under control.",
+            "cues": ["Lead with the elbows", "Keep ribs stacked", "Pause at the squeeze"],
+            "mistakes": ["Jerking the torso", "Shrugging", "Cutting the return short"],
+        }),
+        (("pulldown", "pull up", "pull-up", "chin up", "chin-up"), {
+            "focus": "Back and arms",
+            "setup": "Set the ribs over the pelvis and begin with a controlled shoulder position.",
+            "rep": "Drive the elbows down toward the sides, bring the chest toward the handle or bar, then return to a full controlled stretch.",
+            "cues": ["Drive elbows down", "Avoid excessive swinging", "Own the stretch"],
+            "mistakes": ["Pulling behind the neck", "Using momentum", "Shrugging at the bottom"],
+        }),
+        (("overhead press", "shoulder press", "arnold press"), {
+            "focus": "Shoulders and triceps",
+            "setup": "Brace the trunk and keep the forearms close to vertical beneath the load.",
+            "rep": "Press overhead while keeping the ribs controlled, then lower to a comfortable shoulder position.",
+            "cues": ["Brace before pressing", "Stack the load overhead", "Keep ribs controlled"],
+            "mistakes": ["Overarching the low back", "Pressing too far in front", "Dropping too quickly"],
+        }),
+        (("lateral raise",), {
+            "focus": "Side deltoids",
+            "setup": "Stand tall with a soft elbow bend and the weights controlled at your sides.",
+            "rep": "Raise the arms out and slightly forward to a comfortable height, then lower slowly.",
+            "cues": ["Lead with the elbows", "Use a controlled range", "Keep shoulders away from ears"],
+            "mistakes": ["Swinging the body", "Shrugging", "Using more range than you can control"],
+        }),
+        (("curl",), {
+            "focus": "Biceps and elbow flexors",
+            "setup": "Keep the upper arms quiet and the wrists neutral.",
+            "rep": "Curl through the available elbow range without moving the shoulder forward, then lower fully under control.",
+            "cues": ["Upper arms stay quiet", "Squeeze without wrist bending", "Control the lowering"],
+            "mistakes": ["Swinging the torso", "Letting elbows drift forward", "Dropping the weight"],
+        }),
+        (("tricep", "triceps", "pushdown", "skull crusher", "overhead extension"), {
+            "focus": "Triceps",
+            "setup": "Keep the upper arm position stable and choose a range that feels comfortable at the elbow.",
+            "rep": "Extend the elbow smoothly, finish without snapping the joint, then return under control.",
+            "cues": ["Keep upper arms steady", "Use full controlled extension", "Move smoothly"],
+            "mistakes": ["Moving the shoulder excessively", "Using momentum", "Forcing an uncomfortable elbow angle"],
+        }),
+        (("leg curl",), {
+            "focus": "Hamstrings",
+            "setup": "Align the machine pivot with the knee as closely as possible and keep the hips supported.",
+            "rep": "Curl through a comfortable range, squeeze briefly, then return slowly without letting the stack slam.",
+            "cues": ["Keep hips down", "Pause at the curl", "Slow return"],
+            "mistakes": ["Hips lifting", "Using momentum", "Letting the stack crash"],
+        }),
+        (("calf raise",), {
+            "focus": "Calves",
+            "setup": "Keep the foot secure and use a range you can control without bouncing.",
+            "rep": "Lower the heel under control, rise through the ball of the foot, pause at the top, and repeat smoothly.",
+            "cues": ["Use full controlled range", "Pause at the top", "Keep pressure through the big-toe side"],
+            "mistakes": ["Bouncing", "Rolling the ankle outward", "Using a very short range"],
+        }),
+        (("crunch", "sit-up", "sit up"), {
+            "focus": "Abdominals",
+            "setup": "Start with the ribs stacked over the pelvis and avoid pulling on the neck.",
+            "rep": "Shorten the distance between ribs and pelvis, pause under tension, then return with control.",
+            "cues": ["Move through the trunk", "Keep neck relaxed", "Exhale as you contract"],
+            "mistakes": ["Pulling the head", "Using momentum", "Turning it into mostly hip flexion"],
+        }),
+        (("plank",), {
+            "focus": "Core stability",
+            "setup": "Stack the shoulders and create a straight line through the trunk and legs.",
+            "rep": "Hold tension while breathing normally and stop before the low back begins to sag.",
+            "cues": ["Squeeze glutes", "Keep ribs down", "Breathe while braced"],
+            "mistakes": ["Hips sagging", "Holding the breath", "Shrugging into the shoulders"],
+        }),
+    ]
+
+    chosen = None
+    for terms, guide in guides:
+        if any(term in key for term in terms):
+            chosen = guide
+            break
+    if chosen is None:
+        chosen = {
+            "focus": part,
+            "setup": "Set a stable starting position and choose a load that allows controlled repetitions.",
+            "rep": "Move through a comfortable range with deliberate control, then return to the start without using momentum.",
+            "cues": ["Stay braced", "Use controlled tempo", "Keep the working joint aligned"],
+            "mistakes": ["Using momentum", "Rushing the lowering phase", "Using more load than you can control"],
+        }
+    return {"name": name, **chosen}
+
+
+def _render_native_exercise_guide(exercise_name: str, body_part: str = "") -> None:
+    guide = _exercise_form_guide(exercise_name, body_part)
+    st.markdown(f"**{_esc(guide['name'])} form guide**")
+    st.caption(str(guide["focus"]))
+    st.markdown(f"**Setup:** {_esc(guide['setup'])}")
+    st.markdown(f"**Rep:** {_esc(guide['rep'])}")
+    st.markdown("**Cues:** " + " · ".join(_esc(x) for x in guide["cues"]))
+    st.markdown("**Avoid:** " + " · ".join(_esc(x) for x in guide["mistakes"]))
+    st.caption("Use this as general technique guidance. Stop any movement that causes sharp or unusual pain.")
+
+
+def _weekly_training_coach(
+    workouts: list[Any],
+    sets: list[Any],
+    workout_by_id: dict[int, Any],
+    target_days: int,
+    readiness_score: int | None,
+) -> dict[str, Any]:
+    today = local_today()
+    recent_start = today - timedelta(days=6)
+    prior_start = today - timedelta(days=13)
+    prior_end = today - timedelta(days=7)
+
+    def rows_between(start: date, end: date) -> list[Any]:
+        return [
+            row for row in sets
+            if row.session_id in workout_by_id
+            and start <= workout_by_id[row.session_id].workout_date <= end
+            and int(getattr(row, "reps", 0) or 0) > 0
+        ]
+
+    recent_sets = rows_between(recent_start, today)
+    prior_sets = rows_between(prior_start, prior_end)
+    recent_session_ids = {row.session_id for row in recent_sets}
+    recent_days = {workout_by_id[sid].workout_date for sid in recent_session_ids}
+
+    def volume(rows: list[Any]) -> float:
+        return sum(
+            float(getattr(row, "weight_lb", 0) or 0) * int(getattr(row, "reps", 0) or 0)
+            for row in rows
+            if float(getattr(row, "weight_lb", 0) or 0) > 0
+        )
+
+    recent_volume = volume(recent_sets)
+    prior_volume = volume(prior_sets)
+    volume_change = None
+    if prior_volume > 0:
+        volume_change = (recent_volume - prior_volume) / prior_volume * 100
+
+    actual_days = len(recent_days)
+    target_days = max(1, int(target_days or 3))
+    adherence = min(100, round(actual_days / target_days * 100))
+
+    guidance: list[str] = []
+    if readiness_score is not None and readiness_score < 45:
+        guidance.append("Recovery is the priority today: reduce load or total sets and keep technique crisp.")
+    elif readiness_score is not None and readiness_score < 60:
+        guidance.append("Hold load progression today and repeat quality work near your current targets.")
+    elif readiness_score is not None and readiness_score >= 80:
+        guidance.append("Recovery supports a normal progression attempt on exercises that have earned it.")
+
+    if actual_days < max(1, target_days - 1):
+        guidance.append(f"Consistency is the main opportunity: {actual_days} training day(s) logged in the last 7 days versus a {target_days}-day target.")
+    elif actual_days >= target_days:
+        guidance.append("Weekly training frequency is on target. Progress through reps or load rather than adding extra sessions automatically.")
+
+    if volume_change is not None:
+        if volume_change > 30:
+            guidance.append(f"Weighted volume is up {volume_change:.0f}% versus the prior 7 days. Avoid another large jump next week.")
+        elif volume_change < -30 and actual_days >= target_days:
+            guidance.append(f"Weighted volume is down {abs(volume_change):.0f}% despite normal frequency. Check whether loads or completed reps dropped.")
+        else:
+            guidance.append(f"Weighted volume changed {volume_change:+.0f}% versus the prior 7 days, which is within a manageable range.")
+    elif recent_sets:
+        guidance.append("A prior-week comparison is not available yet; continue collecting consistent workout data.")
+
+    if not guidance:
+        guidance.append("Keep logging complete sets so NouriVanta can make stronger week-to-week recommendations.")
+
+    return {
+        "sessions": len(recent_session_ids),
+        "days": actual_days,
+        "sets": len(recent_sets),
+        "volume": recent_volume,
+        "prior_volume": prior_volume,
+        "volume_change": volume_change,
+        "adherence": adherence,
+        "guidance": guidance,
+    }
+
 def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
     models = ctx["models"]
     SessionLocal = ctx["SessionLocal"]
@@ -1543,6 +1750,8 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         "https://www.youtube.com/results?search_query=" + quote_plus(exercise_name + " exercise form"),
                         width="stretch",
                     )
+                    with st.popover("Form guide"):
+                        _render_native_exercise_guide(exercise_name, body_part)
 
             c1, c2, c3, c4, c5 = st.columns(5)
             sets = c1.number_input("Sets", min_value=1, max_value=20, value=3)
@@ -2164,7 +2373,12 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             alternatives = [x for x in library.get(exercise_part, []) if x != exercise][:6]
             if alternatives:
                 st.caption("Substitutions: " + ", ".join(alternatives))
-            st.link_button("Open exercise demonstration search", "https://www.youtube.com/results?search_query=" + quote_plus(exercise + " exercise form"))
+            demo_search_col, form_guide_col = st.columns([3, 2])
+            with demo_search_col:
+                st.link_button("Open exercise demonstration search", "https://www.youtube.com/results?search_query=" + quote_plus(exercise + " exercise form"), width="stretch")
+            with form_guide_col:
+                with st.popover("In-app form guide"):
+                    _render_native_exercise_guide(exercise, _body_part_lookup(exercise, library))
             history = [
                 x for x in sets
                 if x.exercise_name == exercise and workout_by_id.get(x.session_id)
@@ -2510,6 +2724,74 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
             workout_ids = [w.id for w in workouts]
             sets = session.scalars(select(ExerciseSet).where(ExerciseSet.session_id.in_(workout_ids))).all() if workout_ids else []
         workout_by_id = {w.id: w for w in workouts}
+
+        # Adaptive weekly coach: summarize recent training load, consistency, and recovery
+        # without automatically changing saved programs.
+        with SessionLocal() as session:
+            active_program = session.scalar(
+                select(models.WorkoutProgram)
+                .where(models.WorkoutProgram.user_id == user.id)
+                .order_by(models.WorkoutProgram.created_at.desc())
+            )
+            active_program_exercises = []
+            if active_program is not None:
+                active_program_exercises = session.scalars(
+                    select(models.WorkoutProgramExercise)
+                    .where(models.WorkoutProgramExercise.program_id == active_program.id)
+                    .order_by(models.WorkoutProgramExercise.order_index.asc())
+                ).all()
+
+        readiness_now = _current_progression_readiness(user, ctx)
+        weekly = _weekly_training_coach(
+            workouts,
+            sets,
+            workout_by_id,
+            int(getattr(active_program, "days_per_week", 3) or 3),
+            readiness_now,
+        )
+        st.markdown("### Adaptive weekly coach")
+        readiness_display = f"{readiness_now}/100" if readiness_now is not None else "No check-in"
+        volume_display = f"{weekly['volume']:,.0f}" if weekly['volume'] else "0"
+        st.markdown(
+            f"""
+            <div class="nv-elite-grid">
+                <div class="nv-elite-tile"><div class="nv-label">Training days · 7d</div><div class="nv-elite-big">{weekly['days']}</div><div class="nv-meta">{weekly['adherence']}% of program target</div></div>
+                <div class="nv-elite-tile"><div class="nv-label">Completed sets · 7d</div><div class="nv-elite-big">{weekly['sets']}</div></div>
+                <div class="nv-elite-tile"><div class="nv-label">Weighted volume · 7d</div><div class="nv-elite-big">{volume_display}</div><div class="nv-meta">lb-reps</div></div>
+                <div class="nv-elite-tile"><div class="nv-label">Readiness</div><div class="nv-elite-big">{_esc(readiness_display)}</div></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        for item in weekly["guidance"]:
+            st.markdown(f"- {item}")
+
+        if active_program_exercises:
+            with st.expander("Next-session progression watchlist", expanded=False):
+                watch_rows: list[dict[str, Any]] = []
+                for program_exercise in active_program_exercises[:12]:
+                    exercise_history = [
+                        row for row in sets
+                        if str(getattr(row, "exercise_name", "")) == str(program_exercise.exercise_name)
+                    ]
+                    target = _progression_target(
+                        exercise_history,
+                        int(program_exercise.reps_min or 8),
+                        int(program_exercise.reps_max or 12),
+                        str(program_exercise.body_part or _body_part_lookup(program_exercise.exercise_name, library)),
+                        float(program_exercise.target_weight_lb or 0),
+                        readiness_score=readiness_now,
+                    )
+                    watch_rows.append({
+                        "Day": program_exercise.day_name,
+                        "Exercise": program_exercise.exercise_name,
+                        "Next weight (lb)": round(float(target.get("weight", 0) or 0), 1),
+                        "Next reps": int(target.get("reps", program_exercise.reps_min or 8)),
+                        "Why": str(target.get("message", "")),
+                    })
+                st.dataframe(pd.DataFrame(watch_rows), width="stretch", hide_index=True)
+                st.caption("These are recommendations only. Saved program targets are not changed unless you explicitly apply a target elsewhere in Training Lab.")
+
         latest_by_part: dict[str, date] = {}
         volume_by_week: dict[str, float] = {}
         for set_row in sets:
@@ -2916,6 +3198,25 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
                 else:
                     st.caption(import_note)
                     st.dataframe(normalized_df.head(30), width="stretch", hide_index=True)
+                    preview_rows = normalized_df.head(30).copy()
+                    duplicate_count = int(preview_rows.duplicated(subset=["date", "source"], keep=False).sum()) if not preview_rows.empty else 0
+                    signal_columns = ["sleep_hours", "steps", "resting_hr", "hrv_ms", "active_calories"]
+                    signal_rows = int(
+                        preview_rows[signal_columns]
+                        .fillna(0)
+                        .apply(lambda row: any(float(value or 0) > 0 for value in row), axis=1)
+                        .sum()
+                    ) if not preview_rows.empty else 0
+                    date_min = preview_rows["date"].min() if not preview_rows.empty else None
+                    date_max = preview_rows["date"].max() if not preview_rows.empty else None
+                    d1, d2, d3 = st.columns(3)
+                    d1.metric("Rows ready", len(preview_rows))
+                    d2.metric("Rows with health signals", signal_rows)
+                    d3.metric("Potential duplicate rows", duplicate_count)
+                    if date_min and date_max:
+                        st.caption(f"Detected date range: {date_min.strftime('%m/%d/%Y')} to {date_max.strftime('%m/%d/%Y')}.")
+                    if duplicate_count:
+                        st.warning("Some preview rows share the same date and source. Importing will update matching records rather than create duplicate database records.")
                     st.caption("Common Apple Health, Health Connect, Garmin, Fitbit, and generic export column names are matched automatically.")
                     if st.button("Import displayed wearable rows", type="primary"):
                         imported = 0
@@ -2958,6 +3259,12 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
                 st.error(f"CSV import failed: {exc}")
         with SessionLocal() as session:
             latest = session.scalar(select(models.WearableMetric).where(models.WearableMetric.user_id == user.id).order_by(models.WearableMetric.metric_date.desc(), models.WearableMetric.id.desc()))
+            recent_wearables = session.scalars(
+                select(models.WearableMetric)
+                .where(models.WearableMetric.user_id == user.id)
+                .order_by(models.WearableMetric.metric_date.desc(), models.WearableMetric.id.desc())
+                .limit(30)
+            ).all()
             checkin = session.scalar(select(ctx["DailyCheckIn"]).where(ctx["DailyCheckIn"].user_id == user.id, ctx["DailyCheckIn"].checkin_date == local_today()))
             nutrition_row = session.execute(select(
                 func.coalesce(func.sum(ctx["FoodLog"].calories), 0), func.coalesce(func.sum(ctx["FoodLog"].protein_g), 0),
@@ -2976,6 +3283,45 @@ def _render_voice_wearables(user: Any, ctx: dict[str, Any]) -> None:
             recommendation = "Recovery priority. Use mobility, walking, technique work, or reduced volume."
             css = "nv-readiness-low"
         st.markdown(f"<div class='nv-elite-header'><div class='nv-label'>Recovery-to-Training Match</div><div class='nv-elite-big {css}'>{score}/100</div><div>{_esc(recommendation)}</div></div>", unsafe_allow_html=True)
+
+        if recent_wearables:
+            with st.expander("Wearable trend intelligence", expanded=False):
+                trend_rows = []
+                for metric in reversed(recent_wearables):
+                    trend_rows.append({
+                        "Date": metric.metric_date,
+                        "Source": metric.source,
+                        "Sleep": float(metric.sleep_hours or 0),
+                        "Steps": int(metric.steps or 0),
+                        "Resting HR": float(metric.resting_hr or 0),
+                        "HRV": float(metric.hrv_ms or 0),
+                        "Active calories": float(metric.active_calories or 0),
+                    })
+                trend_df = pd.DataFrame(trend_rows)
+                last_date = max(row["Date"] for row in trend_rows)
+                freshness_days = (local_today() - last_date).days
+                recent_7 = trend_df[trend_df["Date"] >= local_today() - timedelta(days=6)]
+
+                def nz_mean(frame: pd.DataFrame, column: str) -> float:
+                    vals = pd.to_numeric(frame[column], errors="coerce")
+                    vals = vals[vals > 0]
+                    return float(vals.mean()) if not vals.empty else 0.0
+
+                w1, w2, w3, w4 = st.columns(4)
+                w1.metric("Last wearable date", last_date.strftime("%m/%d/%Y"))
+                w2.metric("7d avg sleep", f"{nz_mean(recent_7, 'Sleep'):.1f} h" if nz_mean(recent_7, 'Sleep') else "No data")
+                w3.metric("7d avg HRV", f"{nz_mean(recent_7, 'HRV'):.0f} ms" if nz_mean(recent_7, 'HRV') else "No data")
+                w4.metric("7d avg resting HR", f"{nz_mean(recent_7, 'Resting HR'):.0f} bpm" if nz_mean(recent_7, 'Resting HR') else "No data")
+                if freshness_days > 2:
+                    st.warning(f"Wearable data is {freshness_days} days old. Import a newer export for stronger readiness recommendations.")
+                else:
+                    st.success("Wearable data is current enough to support readiness recommendations.")
+                st.dataframe(
+                    trend_df.tail(14).assign(Date=lambda frame: frame["Date"].map(lambda d: d.strftime("%m/%d/%Y"))),
+                    width="stretch",
+                    hide_index=True,
+                )
+                st.caption("Direct Apple Health and Health Connect background syncing still requires a native mobile companion. Garmin/Fitbit direct account sync requires provider OAuth credentials.")
 
 
 def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
@@ -3056,6 +3402,59 @@ def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
         st.subheader("Recent account access")
         if events:
             st.dataframe(pd.DataFrame([{"Date": utc_naive_to_local(x.event_time).strftime("%m/%d/%Y %I:%M %p"), "Success": x.success, "Client": x.client_info} for x in events]), width="stretch", hide_index=True)
+
+        with st.expander("System health check", expanded=False):
+            st.caption("Runs non-destructive checks only. It does not change account data or settings.")
+            if st.button("Run system health check", key=f"run_system_health_{user.id}"):
+                checks: list[dict[str, str]] = []
+                try:
+                    with SessionLocal() as session:
+                        session.execute(select(1)).scalar_one()
+                    checks.append({"Check": "Database connection", "Status": "PASS", "Detail": "Database query completed."})
+                except Exception as exc:
+                    checks.append({"Check": "Database connection", "Status": "FAIL", "Detail": str(exc)[:160]})
+
+                critical_models = [
+                    "WorkoutProgram",
+                    "WorkoutProgramExercise",
+                    "WearableMetric",
+                    "LoginEvent",
+                ]
+                missing_models = [name for name in critical_models if not hasattr(models, name)]
+                checks.append({
+                    "Check": "Elite data models",
+                    "Status": "PASS" if not missing_models else "FAIL",
+                    "Detail": "All critical models available." if not missing_models else "Missing: " + ", ".join(missing_models),
+                })
+
+                tz_name = active_timezone_name()
+                checks.append({
+                    "Check": "Timezone",
+                    "Status": "PASS" if _valid_timezone_name(tz_name) else "FAIL",
+                    "Detail": tz_name,
+                })
+                checks.append({
+                    "Check": "Session timeout",
+                    "Status": "PASS" if 15 <= int(timeout) <= 10080 else "FAIL",
+                    "Detail": f"{int(timeout)} minutes",
+                })
+                checks.append({
+                    "Check": "AI scan key",
+                    "Status": "PASS" if _openai_api_key() else "OPTIONAL",
+                    "Detail": "Configured" if _openai_api_key() else "Not configured; manual and database features still work.",
+                })
+                checks.append({
+                    "Check": "Streamlit runtime",
+                    "Status": "PASS",
+                    "Detail": str(getattr(st, "__version__", "unknown")),
+                })
+                health_df = pd.DataFrame(checks)
+                st.dataframe(health_df, width="stretch", hide_index=True)
+                failed = int((health_df["Status"] == "FAIL").sum())
+                if failed:
+                    st.error(f"{failed} core health check(s) need attention.")
+                else:
+                    st.success("Core NouriVanta health checks passed.")
     with premium_tab:
         payment_link = os.getenv("STRIPE_PAYMENT_LINK", "").strip()
         st.markdown("**Premium structure is ready for a hosted Stripe subscription link.** Core app data and features stay available even when billing is not configured.")
