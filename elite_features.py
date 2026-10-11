@@ -2420,6 +2420,87 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                             }
                         )
                     reps_df = pd.DataFrame(reps_rows)
+                    reps_dates = reps_df["Date"].tolist()
+                    reps_label_angle = -30 if len(reps_dates) > 6 else 0
+
+                    st.caption("Reps-only volume by workout date for bodyweight or zero-external-weight sets. Each marker is one workout.")
+                    reps_layers: list[dict[str, Any]] = [
+                        {
+                            "mark": {"type": "line", "point": {"filled": True, "size": 95}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": reps_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": reps_label_angle},
+                                },
+                                "y": {
+                                    "field": "Total reps",
+                                    "type": "quantitative",
+                                    "title": "Total repetitions",
+                                    "scale": {"zero": True},
+                                },
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Total reps", "type": "quantitative", "title": "Total reps"},
+                                    {"field": "Sets", "type": "quantitative", "title": "Sets"},
+                                    {"field": "Best set reps", "type": "quantitative", "title": "Best set reps"},
+                                ],
+                            },
+                        }
+                    ]
+                    if len(reps_dates) <= 12:
+                        reps_layers.append(
+                            {
+                                "mark": {"type": "text", "dy": -14, "fontSize": 12, "fontWeight": 700},
+                                "encoding": {
+                                    "x": {"field": "Date", "type": "ordinal", "sort": reps_dates},
+                                    "y": {"field": "Total reps", "type": "quantitative"},
+                                    "text": {"field": "Set label", "type": "nominal"},
+                                },
+                            }
+                        )
+                    st.vega_lite_chart(
+                        reps_df,
+                        {"height": 320, "layer": reps_layers},
+                        use_container_width=True,
+                    )
+
+                    st.caption("Best repetitions completed in a single set on each workout date.")
+                    st.vega_lite_chart(
+                        reps_df,
+                        {
+                            "height": 280,
+                            "mark": {"type": "line", "point": {"filled": True, "size": 85}, "strokeWidth": 3},
+                            "encoding": {
+                                "x": {
+                                    "field": "Date",
+                                    "type": "ordinal",
+                                    "sort": reps_dates,
+                                    "title": "Workout date",
+                                    "axis": {"labelAngle": reps_label_angle},
+                                },
+                                "y": {
+                                    "field": "Best set reps",
+                                    "type": "quantitative",
+                                    "title": "Best set repetitions",
+                                    "scale": {"zero": True},
+                                },
+                                "tooltip": [
+                                    {"field": "Date", "type": "nominal", "title": "Workout date"},
+                                    {"field": "Best set reps", "type": "quantitative", "title": "Best set reps"},
+                                ],
+                            },
+                        },
+                        use_container_width=True,
+                    )
+                    st.dataframe(
+                        reps_df[["Date", "Sets", "Total reps", "Best set reps"]],
+                        width="stretch",
+                        hide_index=True,
+                    )
+
                 if not weighted_history and not reps_only_history:
                     st.info("Add repetitions or weight to completed sets to generate a progression chart.")
 
@@ -2958,7 +3039,8 @@ def _render_family_security(user: Any, ctx: dict[str, Any]) -> None:
             timeout_value = security.session_timeout_min
             events = session.scalars(select(models.LoginEvent).where(models.LoginEvent.user_id == user.id).order_by(models.LoginEvent.event_time.desc()).limit(20)).all()
             session.commit()
-        timeout = st.number_input("Automatic sign-out after inactive minutes", min_value=15, max_value=720, value=int(timeout_value), step=15)
+        timeout_value = int(timeout_value or 1440)
+        timeout = st.number_input("Automatic sign-out after inactive minutes", min_value=15, max_value=10080, value=max(15, min(timeout_value, 10080)), step=15)
         if st.button("Save session timeout"):
             with SessionLocal() as session:
                 security = _get_security(session, models, user.id)
