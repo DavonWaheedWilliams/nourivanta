@@ -1939,7 +1939,10 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                         help="Planned weights and repetitions are adjusted from your latest completed sets. Turn this off to use the saved program targets exactly.",
                     )
                     if st.button("Create workout session", type="primary", width="stretch", key=f"create_program_workout_{program.id}_{log_day}"):
-                        day_exercises = [x for x in planned if x.day_name == log_day]
+                        day_exercises = sorted(
+                            [x for x in planned if x.day_name == log_day],
+                            key=lambda x: (int(x.order_index or 0), int(x.id or 0)),
+                        )
                         current_readiness = _current_progression_readiness(user, ctx) if smart_progression else None
                         with SessionLocal() as session:
                             workout = WorkoutSession(

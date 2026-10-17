@@ -3841,7 +3841,29 @@ def render_workouts(user: User) -> None:
                     if workout.notes:
                         st.write(workout.notes)
                     with SessionLocal() as session:
-                        sets = session.scalars(select(ExerciseSet).where(ExerciseSet.session_id == workout.id).order_by(ExerciseSet.exercise_name, ExerciseSet.set_number)).all()
+                        sets = session.scalars(
+                            select(ExerciseSet)
+                            .where(ExerciseSet.session_id == workout.id)
+                            .order_by(ExerciseSet.id.asc())
+                        ).all()
+
+                    # Preserve the exercise sequence that existed when the workout was created.
+                    # Program-created workouts insert their sets in Current program order, so the
+                    # first saved set ID for each exercise is a stable workout-level order key.
+                    # Sets remain grouped by exercise and ordered by set number; exercises added
+                    # later to workout history naturally appear at the end.
+                    if sets:
+                        exercise_first_id: dict[str, int] = {}
+                        for set_row in sets:
+                            exercise_first_id.setdefault(str(set_row.exercise_name), int(set_row.id))
+                        sets = sorted(
+                            sets,
+                            key=lambda set_row: (
+                                exercise_first_id.get(str(set_row.exercise_name), int(set_row.id)),
+                                int(set_row.set_number or 0),
+                                int(set_row.id),
+                            ),
+                        )
 
                     with st.popover("Add exercise to this workout", width="stretch"):
                         add_left, add_right = st.columns(2)
