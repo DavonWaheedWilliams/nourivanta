@@ -1813,29 +1813,114 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                     "Set style": x.set_style,
                 } for x in planned]), width="stretch", hide_index=True)
 
-                with st.popover("Delete exercise from current program"):
-                    exercise_to_delete = st.selectbox(
-                        "Program exercise",
-                        planned,
-                        format_func=lambda x: f"{x.day_name} · {x.exercise_name}",
-                        key=f"delete_program_exercise_select_{program.id}",
+                with st.popover("Move exercises up or down"):
+                    reorder_labels = {
+                        x.id: f"{x.day_name} · {x.exercise_name}"
+                        for x in planned
+                    }
+                    reorder_id = st.selectbox(
+                        "Exercise to move",
+                        [x.id for x in planned],
+                        format_func=lambda exercise_id: reorder_labels.get(exercise_id, str(exercise_id)),
+                        key=f"reorder_program_exercise_select_{program.id}",
                     )
-                    st.warning(f'Delete "{exercise_to_delete.exercise_name}" from {exercise_to_delete.day_name}? Past workout sessions will not be changed.')
+                    selected_for_reorder = next((x for x in planned if x.id == reorder_id), None)
+                    if selected_for_reorder is not None:
+                        same_day = [x for x in planned if x.day_name == selected_for_reorder.day_name]
+                        same_day.sort(key=lambda x: (int(x.order_index or 0), int(x.id)))
+                        selected_position = next((i for i, x in enumerate(same_day) if x.id == reorder_id), 0)
+                        st.caption(
+                            f"{selected_for_reorder.day_name}: position {selected_position + 1} of {len(same_day)}. "
+                            "Exercises move only within this training day."
+                        )
+                        move_up_col, move_down_col = st.columns(2)
+                        move_up = move_up_col.button(
+                            "↑ Move up",
+                            width="stretch",
+                            disabled=selected_position == 0,
+                            key=f"move_program_exercise_up_{program.id}_{reorder_id}",
+                        )
+                        move_down = move_down_col.button(
+                            "↓ Move down",
+                            width="stretch",
+                            disabled=selected_position >= len(same_day) - 1,
+                            key=f"move_program_exercise_down_{program.id}_{reorder_id}",
+                        )
+                        if move_up or move_down:
+                            target_position = selected_position - 1 if move_up else selected_position + 1
+                            reordered_ids = [x.id for x in same_day]
+                            reordered_ids[selected_position], reordered_ids[target_position] = (
+                                reordered_ids[target_position],
+                                reordered_ids[selected_position],
+                            )
+                            with SessionLocal() as session:
+                                day_rows = session.scalars(
+                                    select(models.WorkoutProgramExercise)
+                                    .where(
+                                        models.WorkoutProgramExercise.program_id == program.id,
+                                        models.WorkoutProgramExercise.day_name == selected_for_reorder.day_name,
+                                    )
+                                ).all()
+                                rows_by_id = {row.id: row for row in day_rows}
+                                for new_index, exercise_id in enumerate(reordered_ids, start=1):
+                                    row = rows_by_id.get(exercise_id)
+                                    if row is not None:
+                                        row.order_index = new_index
+                                session.commit()
+                            st.success("Exercise order updated.")
+                            st.rerun()
+
+                with st.popover("Delete exercises from current program"):
+                    delete_labels = {
+                        x.id: f"{x.day_name} · {x.exercise_name}"
+                        for x in planned
+                    }
+                    exercise_ids_to_delete = st.multiselect(
+                        "Program exercises",
+                        [x.id for x in planned],
+                        format_func=lambda exercise_id: delete_labels.get(exercise_id, str(exercise_id)),
+                        key=f"delete_program_exercises_select_{program.id}",
+                        help="Select one or more exercises. Existing workout sessions and logged sets will not be changed.",
+                    )
+                    if exercise_ids_to_delete:
+                        st.warning(
+                            f"Delete {len(exercise_ids_to_delete)} selected exercise"
+                            f"{'s' if len(exercise_ids_to_delete) != 1 else ''} from this program? "
+                            "Past workout sessions will not be changed."
+                        )
                     if st.button(
-                        "Confirm delete exercise",
+                        "Delete selected exercises",
                         type="primary",
                         width="stretch",
-                        key=f"delete_program_exercise_{program.id}_{exercise_to_delete.id}",
+                        disabled=not exercise_ids_to_delete,
+                        key=f"delete_program_exercises_{program.id}",
                     ):
+                        ids_to_delete = {int(exercise_id) for exercise_id in exercise_ids_to_delete}
                         with SessionLocal() as session:
                             session.execute(
                                 delete(models.WorkoutProgramExercise).where(
-                                    models.WorkoutProgramExercise.id == exercise_to_delete.id,
+                                    models.WorkoutProgramExercise.id.in_(ids_to_delete),
                                     models.WorkoutProgramExercise.program_id == program.id,
                                 )
                             )
+                            remaining_rows = session.scalars(
+                                select(models.WorkoutProgramExercise)
+                                .where(models.WorkoutProgramExercise.program_id == program.id)
+                                .order_by(
+                                    models.WorkoutProgramExercise.day_name,
+                                    models.WorkoutProgramExercise.order_index,
+                                    models.WorkoutProgramExercise.id,
+                                )
+                            ).all()
+                            next_index_by_day: dict[str, int] = {}
+                            for row in remaining_rows:
+                                next_index_by_day[row.day_name] = next_index_by_day.get(row.day_name, 0) + 1
+                                row.order_index = next_index_by_day[row.day_name]
                             session.commit()
-                        st.success("Exercise removed from current program.")
+                        st.success(
+                            f"{len(ids_to_delete)} exercise"
+                            f"{'s' if len(ids_to_delete) != 1 else ''} removed from current program."
+                        )
                         st.rerun()
 
                 days = sorted({x.day_name for x in planned})
