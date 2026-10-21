@@ -1870,6 +1870,63 @@ def _render_training_lab(user: Any, ctx: dict[str, Any]) -> None:
                             st.success("Exercise order updated.")
                             st.rerun()
 
+                with st.popover("Adjust rep range"):
+                    rep_labels = {
+                        x.id: f"{x.day_name} · {x.exercise_name} · {x.reps_min}-{x.reps_max} reps"
+                        for x in planned
+                    }
+                    rep_exercise_id = st.selectbox(
+                        "Exercise to adjust",
+                        [x.id for x in planned],
+                        format_func=lambda exercise_id: rep_labels.get(exercise_id, str(exercise_id)),
+                        key=f"adjust_program_rep_range_select_{program.id}",
+                    )
+                    selected_for_reps = next((x for x in planned if x.id == rep_exercise_id), None)
+                    if selected_for_reps is not None:
+                        rep_min_col, rep_max_col = st.columns(2)
+                        new_reps_min = rep_min_col.number_input(
+                            "Minimum reps",
+                            min_value=1,
+                            max_value=100,
+                            value=int(selected_for_reps.reps_min or 1),
+                            step=1,
+                            key=f"adjust_program_reps_min_{program.id}_{rep_exercise_id}",
+                        )
+                        new_reps_max = rep_max_col.number_input(
+                            "Maximum reps",
+                            min_value=1,
+                            max_value=100,
+                            value=int(selected_for_reps.reps_max or selected_for_reps.reps_min or 1),
+                            step=1,
+                            key=f"adjust_program_reps_max_{program.id}_{rep_exercise_id}",
+                        )
+                        invalid_rep_range = int(new_reps_max) < int(new_reps_min)
+                        if invalid_rep_range:
+                            st.warning("Maximum reps must be equal to or greater than minimum reps.")
+                        if st.button(
+                            "Save rep range",
+                            type="primary",
+                            width="stretch",
+                            disabled=invalid_rep_range,
+                            key=f"save_program_rep_range_{program.id}_{rep_exercise_id}",
+                        ):
+                            with SessionLocal() as session:
+                                row = session.scalar(
+                                    select(models.WorkoutProgramExercise).where(
+                                        models.WorkoutProgramExercise.id == int(rep_exercise_id),
+                                        models.WorkoutProgramExercise.program_id == program.id,
+                                    )
+                                )
+                                if row is not None:
+                                    row.reps_min = int(new_reps_min)
+                                    row.reps_max = int(new_reps_max)
+                                    session.commit()
+                            st.success(
+                                f"Rep range updated to {int(new_reps_min)}-{int(new_reps_max)} for "
+                                f"{selected_for_reps.exercise_name}."
+                            )
+                            st.rerun()
+
                 with st.popover("Delete exercises from current program"):
                     delete_labels = {
                         x.id: f"{x.day_name} · {x.exercise_name}"
