@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "node": "22.16.0"
+    },
+    "preview": {
+      "distribution": "internal",
+      "node": "22.16.0"
+    },
+    "production": {
+      "autoIncrement": true,
+      "node": "22.16.0"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

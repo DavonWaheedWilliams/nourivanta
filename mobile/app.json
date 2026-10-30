@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "NouriVanta",
+    "slug": "nourivanta",
+    "version": "1.1.0",
+    "orientation": "portrait",
+    "scheme": "nourivanta",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nourivanta.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "NouriVanta uses the camera to scan food barcodes and nutrition information.",
+        "NSHealthShareUsageDescription": "NouriVanta reads steps, sleep, resting heart rate, HRV and active calories to show your fitness trends.",
+        "NSHealthUpdateUsageDescription": "NouriVanta does not write health data. This permission description is required by the HealthKit integration."
+      },
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.nourivanta.app",
+      "permissions": [
+        "CAMERA",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_SLEEP",
+        "android.permission.health.READ_RESTING_HEART_RATE",
+        "android.permission.health.READ_HEART_RATE_VARIABILITY",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#07101f"
+      },
+      "versionCode": 1
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NouriVanta to scan food barcodes."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "NouriVanta reads steps, sleep, resting heart rate, HRV and active calories to show your fitness trends.",
+          "NSHealthUpdateUsageDescription": "NouriVanta does not write health data."
+        }
+      ],
+      "react-native-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 37,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 26,
+            "buildToolsVersion": "37.0.0"
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
